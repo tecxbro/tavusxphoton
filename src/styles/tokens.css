@@ -1,0 +1,37 @@
+:root {
+  --font-system:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-call-green: #30d158;
+  --color-microphone-orange: #ff9f0a;
+  --color-end-call: #ff2d2d;
+  --color-status-cyan: #64d2ff;
+
+  --radius-control: 999px;
+  --radius-preview: 28px;
+  --radius-video: 44px;
+
+  --control-small: 58px;
+  --control-end: 74px;
+
+  --space-edge: 18px;
+  --space-control: 14px;
+
+  --glass-z: 30;
+  --sheet-z: 50;
+  --toast-z: 60;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  --vv-width: 100vw;
+  --vv-height: 100dvh;
+}
