@@ -33,6 +33,8 @@ export function useLiquidGlass({
   const [mode, setMode] = useState<LiquidGlassMode>("initializing");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<LiquidGlassController | null>(null);
+  // Strict Mode and rapid enable/disable must not apply late init to a
+  // destroyed controller — bump on each mount effect run.
   const generationRef = useRef(0);
 
   useEffect(() => {

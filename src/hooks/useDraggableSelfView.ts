@@ -31,6 +31,7 @@ interface DragOptions {
 
 const STORAGE_KEY = "mini-pho-self-view";
 
+// Persist corner names only — pixel coords go stale across resize / chrome hide.
 const VALID_CORNERS: ReadonlySet<string> = new Set([
   "top-left",
   "top-right",
@@ -137,6 +138,7 @@ export function useDraggableSelfView(
         setCorner(parsed as SelfViewCorner);
         return;
       }
+      // Drop legacy pixel payloads or corrupt values so layout recomputes cleanly.
       sessionStorage.removeItem(STORAGE_KEY);
       setCorner(null);
       setPosition(null);

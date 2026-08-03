@@ -34,7 +34,10 @@ export function useMediaDevices(): MediaDevicesState {
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
+  // Invalidates overlapping getUserMedia / stopAll work so a superseded
+  // permission grant cannot attach after the caller moved on.
   const requestGeneration = useRef(0);
+  // Coalesce concurrent requestPermissions callers onto one in-flight promise.
   const requestInFlight = useRef<Promise<MediaStream | null> | null>(null);
 
   const attachStream = useCallback((next: MediaStream) => {
@@ -125,6 +128,7 @@ export function useMediaDevices(): MediaDevicesState {
       facingMode === "user" ? "environment" : "user";
 
     try {
+      // Replace video only; keep existing audio tracks so mute state survives.
       const replacement = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: nextFacing },
         audio: false,
@@ -141,6 +145,8 @@ export function useMediaDevices(): MediaDevicesState {
       const audioTracks = current.getAudioTracks();
       const combined = new MediaStream([newVideo, ...audioTracks]);
 
+      // Stop the old track only after the new stream is attached so preview
+      // never goes black on a failed flip mid-swap.
       attachStream(combined);
       setFacingMode(nextFacing);
       setVideoEnabled(newVideo.enabled);

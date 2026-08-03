@@ -22,6 +22,7 @@ export class PhoTestClientError extends Error {
 }
 
 function assertNeverLoggedSecret(value: unknown): void {
+  // Errors must stay safe to surface in the controller UI — never echo Bearer.
   if (typeof value === "string" && /bearer\s+/i.test(value)) {
     throw new Error("Refusing to process authorization material in errors");
   }
@@ -170,6 +171,7 @@ export async function sendPhoTestCommand(
     throw new PhoTestClientError(401, "Missing controller secret");
   }
 
+  // A 2xx here only means the command was queued — wait for ack before UI success.
   const response = await fetch("/api/test-call/command", {
     method: "POST",
     cache: "no-store",

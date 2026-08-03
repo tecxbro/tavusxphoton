@@ -134,6 +134,7 @@ function restoreTargetStyles(instances: LiquidGLInstance[]): void {
  * Move the shared WebGL canvas (and lens shadow elements) from document.body
  * into the call screen layer so glass participates in one stacking hierarchy:
  * video < LiquidGL canvas < controls < content < sheets.
+ * Without adoption, body-level canvas paints above sheets / under wrong z-order.
  */
 function adoptRendererCanvas(): void {
   const renderer = window.__liquidGLRenderer__;
@@ -230,7 +231,8 @@ function eraseStaleVideoRegions(): void {
   }
 }
 
-// Private renderer fields below are version-locked to liquid-gl@2.0.1.
+// Private renderer fields below are version-locked to liquid-gl@2.0.1
+// (see patches/liquid-gl+2.0.1.patch). Do not upgrade without re-auditing.
 function clearRenderer(): void {
   const renderer = window.__liquidGLRenderer__;
   if (!renderer) return;
@@ -342,6 +344,8 @@ export function createLiquidGlassController(): LiquidGlassController {
 
     const generation = ++initGeneration;
     setMode("initializing");
+    // Tear down any prior singleton before constructing — liquid-gl keeps one
+    // global renderer; remount without clear duplicates canvases.
     clearRenderer();
     instances = [];
     initialized = false;

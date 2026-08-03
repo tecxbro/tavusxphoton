@@ -91,6 +91,8 @@ export interface PhoTestCommandHandlers {
 
 /**
  * Polls the temporary test-controller API and applies each new revision once.
+ * Acknowledgements are deferred until the resulting phase matches the action
+ * so the controller UI never treats a bare POST as success.
  */
 export function usePhoTestCommands(
   sessionId: string,
@@ -101,6 +103,7 @@ export function usePhoTestCommands(
 
   const lastAppliedRef = useRef(0);
   const inflightRef = useRef(false);
+  // Holds the applied revision until shouldAcknowledge sees the expected phase.
   const pendingAckRef = useRef<PendingAck | null>(null);
 
   useEffect(() => {
@@ -190,6 +193,7 @@ export function usePhoTestCommands(
 
       lastAppliedRef.current = command.revision;
       writeStoredRevision(sessionId, command.revision);
+      // Persist before ack so a reload does not re-apply the same revision.
       pendingAckRef.current = {
         revision: command.revision,
         action: command.action,

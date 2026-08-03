@@ -108,6 +108,7 @@ export function formatDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/** Allowed phase edges. CallScreen must dispatch through callReducer — do not set phases ad hoc. */
 export function canTransition(from: CallPhase, to: CallPhase): boolean {
   switch (from) {
     case "bootstrapping":
@@ -158,6 +159,7 @@ export type CallAction =
   | { type: "RESTART" }
   | { type: "CLOSE" };
 
+/** Pure phase machine. Illegal transitions are no-ops so async races cannot skip ahead. */
 export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
   switch (action.type) {
     case "BOOTSTRAP":

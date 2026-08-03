@@ -88,6 +88,8 @@ export function LocalCameraSurface({
         playsInline
         muted
         data-testid="local-video"
+        // When camera is off, ignore this node in LiquidGL live blits so the
+        // last frame is not frozen into the glass after the placeholder shows.
         data-liquid-ignore={videoEnabled ? undefined : ""}
       />
 

@@ -65,9 +65,14 @@ export function CallScreen({ config }: CallScreenProps) {
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  // Mirror of reducer phase for async media / Pho handlers that must not
+  // close over a stale render. Always update alongside dispatch.
   const phaseRef = useRef<CallPhase>(phase);
   const transitionTimers = useRef<number[]>([]);
+  // Strict Mode remounts effects once; gate the initial beginCall so we do
+  // not request media twice on first paint.
   const bootstrapped = useRef(false);
+  // Bumped on every beginCall / end so late media and timers ignore prior work.
   const attemptRef = useRef(0);
 
   phaseRef.current = phase;
@@ -420,6 +425,9 @@ export function CallScreen({ config }: CallScreenProps) {
           <div className="video-overlay" />
         </div>
 
+        {/* Keep the local surface mounted for the whole active call so camera
+            off only disables the track / shows a placeholder — LiquidGL still
+            snapshots a stable video node instead of remounting. */}
         {showLocal && (
           <LocalCameraSurface
             stream={stream}
