@@ -1,31 +1,24 @@
 import { getInitials } from "../lib/callState";
-import { hapticTap } from "../lib/liquidGlass";
 import { SymbolIcon } from "./SymbolIcon";
 
 interface ContactPillProps {
   name: string;
   avatar: string;
   connecting?: boolean;
-  onClick?: () => void;
 }
 
 export function ContactPill({
   name,
   avatar,
   connecting = false,
-  onClick,
 }: ContactPillProps) {
   const label = connecting ? "Connecting…" : name;
 
   return (
-    <button
-      type="button"
+    <div
       className="contact-pill liquidGL"
-      onClick={() => {
-        hapticTap();
-        onClick?.();
-      }}
-      aria-label={connecting ? "Connecting" : `Call with ${name}`}
+      role="status"
+      aria-live="polite"
       title={label}
       data-testid="contact-pill"
       data-connecting={connecting || undefined}
@@ -61,6 +54,6 @@ export function ContactPill({
           />
         )}
       </span>
-    </button>
+    </div>
   );
 }

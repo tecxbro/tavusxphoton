@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface SafeViewport {
   width: number;
@@ -23,33 +23,49 @@ export function useSafeViewport() {
       ? { width: 393, height: 852, offsetTop: 0, offsetLeft: 0 }
       : readViewport(),
   );
+  const frame = useRef<number | null>(null);
 
   useEffect(() => {
-    const apply = () => {
-      const next = readViewport();
-      setViewport(next);
-      document.documentElement.style.setProperty(
-        "--vv-width",
-        `${next.width}px`,
-      );
-      document.documentElement.style.setProperty(
-        "--vv-height",
-        `${next.height}px`,
-      );
+    const schedule = () => {
+      if (frame.current !== null) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        const next = readViewport();
+        setViewport((current) =>
+          current.width === next.width &&
+          current.height === next.height &&
+          current.offsetTop === next.offsetTop &&
+          current.offsetLeft === next.offsetLeft
+            ? current
+            : next,
+        );
+        document.documentElement.style.setProperty(
+          "--vv-width",
+          `${next.width}px`,
+        );
+        document.documentElement.style.setProperty(
+          "--vv-height",
+          `${next.height}px`,
+        );
+      });
     };
 
-    apply();
+    schedule();
     const vv = window.visualViewport;
-    vv?.addEventListener("resize", apply);
-    vv?.addEventListener("scroll", apply);
-    window.addEventListener("resize", apply);
-    window.addEventListener("orientationchange", apply);
+    vv?.addEventListener("resize", schedule);
+    vv?.addEventListener("scroll", schedule);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
 
     return () => {
-      vv?.removeEventListener("resize", apply);
-      vv?.removeEventListener("scroll", apply);
-      window.removeEventListener("resize", apply);
-      window.removeEventListener("orientationchange", apply);
+      if (frame.current !== null) {
+        cancelAnimationFrame(frame.current);
+        frame.current = null;
+      }
+      vv?.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
     };
   }, []);
 

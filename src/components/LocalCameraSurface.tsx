@@ -7,7 +7,7 @@ import {
 } from "react";
 import { getInitials } from "../lib/callState";
 import { useLayoutMorph } from "../hooks/useLayoutMorph";
-import { hapticTap } from "../lib/liquidGlass";
+import { hapticTap } from "../lib/haptics";
 import { SymbolIcon } from "./SymbolIcon";
 
 export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
@@ -51,12 +51,18 @@ export function LocalCameraSurface({
   useLayoutMorph(nodeRef, mode);
 
   useEffect(() => {
-    const el = innerVideoRef.current;
-    if (!el || !stream) return;
-    if (el.srcObject !== stream) {
-      el.srcObject = stream;
-    }
-    void el.play().catch(() => undefined);
+    const element = innerVideoRef.current;
+    if (!element) return;
+
+    element.srcObject = stream;
+    if (stream) void element.play().catch(() => undefined);
+
+    return () => {
+      if (element.srcObject === stream) {
+        element.pause();
+        element.srcObject = null;
+      }
+    };
   }, [stream]);
 
   const setVideoNode = (el: HTMLVideoElement | null) => {

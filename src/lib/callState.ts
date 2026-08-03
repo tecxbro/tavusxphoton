@@ -1,14 +1,12 @@
 export type CallPhase =
   | "bootstrapping"
-  | "dialing"
+  | "ringing"
   | "connecting"
   | "joining"
   | "live"
   | "ended"
   | "permission-error"
   | "connection-error";
-
-export type CallOverlay = "none" | "more" | "capture-feedback";
 
 export type CameraFacing = "user" | "environment";
 
@@ -38,32 +36,60 @@ export const defaultCall: CallConfig = {
 };
 
 export const CONNECTING_MIN_MS = 700;
-export const DIALING_MIN_MS = 1600;
-export const STATUS_PILL_MS = 2200;
 export const AUTO_HIDE_MS = 2000;
 export const JOIN_MORPH_MS = 520;
 export const CHROME_HIDE_MS = 280;
 export const SELF_COMPACT_MS = 400;
 export const MORE_OPEN_MS = 420;
 export const MORE_CLOSE_MS = 210;
-export const CAPTURE_FLASH_IN_MS = 40;
-export const CAPTURE_FLASH_HOLD_MS = 55;
-export const CAPTURE_FLASH_OUT_MS = 160;
-export const CAPTURE_TOAST_MS = 1800;
 export const TOGGLE_SYMBOL_MS = 180;
 export const EASE_OUT_EXPO = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function safeSessionId(value: string): string {
+  return SAFE_SESSION_ID.test(value) ? value : defaultCall.sessionId;
+}
+
+function safeName(value: string | null, fallback: string): string {
+  const normalized = value?.trim().slice(0, 80);
+  return normalized || fallback;
+}
+
+function safeSameOriginAsset(
+  value: string | null,
+  fallback: string,
+): string {
+  if (!value) return fallback;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin) return fallback;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return fallback;
+  }
+}
 
 export function parseCallSearchParams(
   sessionId: string,
   search: string,
 ): CallConfig {
   const params = new URLSearchParams(search);
-  const selfAvatar = params.get("selfAvatar") || undefined;
+  const selfAvatarRaw = params.get("selfAvatar");
+  const selfAvatar = selfAvatarRaw
+    ? safeSameOriginAsset(selfAvatarRaw, "")
+    : undefined;
   return {
-    sessionId: sessionId || defaultCall.sessionId,
-    participantName: params.get("name") || defaultCall.participantName,
-    participantAvatar: params.get("avatar") || defaultCall.participantAvatar,
-    remoteVideo: params.get("remoteVideo") || defaultCall.remoteVideo,
+    sessionId: safeSessionId(sessionId),
+    participantName: safeName(params.get("name"), defaultCall.participantName),
+    participantAvatar: safeSameOriginAsset(
+      params.get("avatar"),
+      defaultCall.participantAvatar,
+    ),
+    remoteVideo: safeSameOriginAsset(
+      params.get("remoteVideo"),
+      defaultCall.remoteVideo,
+    ),
     ...(selfAvatar ? { selfAvatar } : {}),
   };
 }
@@ -86,11 +112,11 @@ export function canTransition(from: CallPhase, to: CallPhase): boolean {
   switch (from) {
     case "bootstrapping":
       return (
-        to === "dialing" ||
+        to === "ringing" ||
         to === "permission-error" ||
         to === "ended"
       );
-    case "dialing":
+    case "ringing":
       return (
         to === "connecting" ||
         to === "ended" ||
@@ -108,11 +134,11 @@ export function canTransition(from: CallPhase, to: CallPhase): boolean {
     case "live":
       return to === "ended" || to === "connection-error";
     case "ended":
-      return to === "bootstrapping" || to === "dialing";
+      return to === "bootstrapping" || to === "ringing";
     case "permission-error":
-      return to === "bootstrapping" || to === "dialing";
+      return to === "bootstrapping" || to === "ringing";
     case "connection-error":
-      return to === "bootstrapping" || to === "dialing" || to === "ended";
+      return to === "bootstrapping" || to === "ringing" || to === "ended";
     default: {
       const _exhaustive: never = from;
       return _exhaustive;
@@ -124,7 +150,7 @@ export type CallAction =
   | { type: "BOOTSTRAP" }
   | { type: "PERMISSIONS_GRANTED" }
   | { type: "PERMISSIONS_DENIED" }
-  | { type: "ENTER_CONNECTING" }
+  | { type: "PHO_ANSWERED" }
   | { type: "REMOTE_FRAME" }
   | { type: "JOIN_COMPLETE" }
   | { type: "CONNECTION_FAILED" }
@@ -145,12 +171,12 @@ export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
       }
       return phase;
     case "PERMISSIONS_GRANTED":
-      return canTransition(phase, "dialing") ? "dialing" : phase;
+      return canTransition(phase, "ringing") ? "ringing" : phase;
     case "PERMISSIONS_DENIED":
       return canTransition(phase, "permission-error")
         ? "permission-error"
         : phase;
-    case "ENTER_CONNECTING":
+    case "PHO_ANSWERED":
       return canTransition(phase, "connecting") ? "connecting" : phase;
     case "REMOTE_FRAME":
       return canTransition(phase, "joining") ? "joining" : phase;
@@ -175,7 +201,7 @@ export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
 
 export function isActiveCallPhase(phase: CallPhase): boolean {
   return (
-    phase === "dialing" ||
+    phase === "ringing" ||
     phase === "connecting" ||
     phase === "joining" ||
     phase === "live"

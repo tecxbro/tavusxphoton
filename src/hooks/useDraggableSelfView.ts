@@ -87,8 +87,14 @@ export function useDraggableSelfView(
   const compact = options.compact ?? false;
   const [position, setPosition] = useState<CornerPosition | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [boundsVersion, setBoundsVersion] = useState(0);
   const drag = useRef<DragState | null>(null);
   const nodeRef = useRef<HTMLDivElement | null>(null);
+  const livePosition = useRef<CornerPosition | null>(null);
+  const moveFrame = useRef<number | null>(null);
+  const positionRef = useRef<CornerPosition | null>(null);
+
+  positionRef.current = position;
 
   useEffect(() => {
     try {
@@ -107,12 +113,30 @@ export function useDraggableSelfView(
     }
   }, []);
 
+  useEffect(() => {
+    const bump = () => setBoundsVersion((value) => value + 1);
+    window.addEventListener("resize", bump);
+    window.visualViewport?.addEventListener("resize", bump);
+    return () => {
+      window.removeEventListener("resize", bump);
+      window.visualViewport?.removeEventListener("resize", bump);
+    };
+  }, []);
+
   const persist = useCallback((next: CornerPosition) => {
     setPosition(next);
+    positionRef.current = next;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
       // ignore
+    }
+  }, []);
+
+  const clearMoveFrame = useCallback(() => {
+    if (moveFrame.current != null) {
+      cancelAnimationFrame(moveFrame.current);
+      moveFrame.current = null;
     }
   }, []);
 
@@ -126,12 +150,15 @@ export function useDraggableSelfView(
       event.currentTarget.setPointerCapture(event.pointerId);
       const rect = node.getBoundingClientRect();
       const bounds = container.getBoundingClientRect();
+      const originLeft = rect.left - bounds.left;
+      const originTop = rect.top - bounds.top;
       drag.current = {
         startX: event.clientX,
         startY: event.clientY,
-        originLeft: rect.left - bounds.left,
-        originTop: rect.top - bounds.top,
+        originLeft,
+        originTop,
       };
+      livePosition.current = { left: originLeft, top: originTop };
       setDragging(true);
     },
     [containerRef, enabled],
@@ -155,21 +182,36 @@ export function useDraggableSelfView(
         8,
         bounds.height - height - 100,
       );
-      setPosition({ left, top });
+      livePosition.current = { left, top };
+
+      if (moveFrame.current !== null) return;
+      moveFrame.current = requestAnimationFrame(() => {
+        moveFrame.current = null;
+        const node = nodeRef.current;
+        const live = livePosition.current;
+        if (!node || !live) return;
+        const committed = positionRef.current ?? {
+          left: drag.current?.originLeft ?? live.left,
+          top: drag.current?.originTop ?? live.top,
+        };
+        node.style.transform = `translate3d(${live.left - committed.left}px, ${live.top - committed.top}px, 0)`;
+      });
     },
     [containerRef],
   );
 
   const onPointerUp = useCallback(() => {
+    clearMoveFrame();
     if (!drag.current || !containerRef.current || !nodeRef.current) {
       setDragging(false);
       drag.current = null;
+      livePosition.current = null;
       return;
     }
     const bounds = containerRef.current.getBoundingClientRect();
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
-    const current = position ?? {
+    const current = livePosition.current ?? {
       left: bounds.width - width - 24,
       top: compact ? 18 : 68,
     };
@@ -181,10 +223,14 @@ export function useDraggableSelfView(
       bounds,
       compact,
     );
+    if (nodeRef.current) {
+      nodeRef.current.style.transform = "";
+    }
     persist(snapped);
     setDragging(false);
     drag.current = null;
-  }, [compact, containerRef, persist, position]);
+    livePosition.current = null;
+  }, [clearMoveFrame, compact, containerRef, persist]);
 
   useEffect(() => {
     if (!enabled || !containerRef.current || !nodeRef.current) return;
@@ -192,10 +238,22 @@ export function useDraggableSelfView(
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
     if (width <= 0 || height <= 0) return;
-    const current = position ?? {
+
+    const current = positionRef.current ?? {
       left: bounds.width - width - 24,
       top: compact ? 18 : 68,
     };
+    const maxLeft = bounds.width - width - 8;
+    const maxTop = bounds.height - height - 100;
+    const outside =
+      !positionRef.current ||
+      current.left < 8 ||
+      current.left > maxLeft ||
+      current.top < 8 ||
+      current.top > maxTop;
+
+    if (!outside) return;
+
     const snapped = nearestCorner(
       current.left,
       current.top,
@@ -205,13 +263,15 @@ export function useDraggableSelfView(
       compact,
     );
     if (
-      !position ||
-      snapped.left !== position.left ||
-      snapped.top !== position.top
+      !positionRef.current ||
+      snapped.left !== positionRef.current.left ||
+      snapped.top !== positionRef.current.top
     ) {
       persist(snapped);
     }
-  }, [compact, containerRef, enabled, persist, position]);
+  }, [boundsVersion, compact, containerRef, enabled, persist]);
+
+  useEffect(() => () => clearMoveFrame(), [clearMoveFrame]);
 
   return {
     nodeRef,

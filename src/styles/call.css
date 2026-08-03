@@ -60,7 +60,7 @@
   background: #111;
   z-index: 15;
   transform-origin: top right;
-  will-change: transform, border-radius, width, height, top, right;
+  will-change: transform;
 }
 
 .local-camera-surface[data-mode="fullscreen"] {
@@ -85,8 +85,6 @@
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
   transition:
-    width var(--motion-self) var(--ease-out-expo),
-    top var(--motion-self) var(--ease-out-expo),
     border-radius var(--motion-self) var(--ease-out-expo),
     box-shadow var(--motion-self) ease;
 }
@@ -103,8 +101,6 @@
   border: 1px solid rgba(255, 255, 255, 0.34);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
   transition:
-    width var(--motion-self) var(--ease-out-expo),
-    top var(--motion-self) var(--ease-out-expo),
     border-radius var(--motion-self) var(--ease-out-expo),
     box-shadow var(--motion-self) ease;
 }
@@ -285,39 +281,6 @@
   display: grid;
   place-items: center;
   color: var(--color-white);
-}
-
-.capture-btn {
-  position: absolute;
-  top: calc(var(--safe-top) + 68px - 14px - var(--control-capture));
-  right: calc(var(--safe-right) + 24px);
-  width: var(--control-capture);
-  height: var(--control-capture);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: transparent;
-}
-
-.capture-btn__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.55);
-}
-
-.capture-btn__disc {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.call-screen[data-chrome="hidden"] .capture-btn,
-.call-screen[data-phase="dialing"] .capture-btn,
-.call-screen[data-phase="connecting"] .capture-btn {
-  opacity: 0;
   pointer-events: none;
 }
 
@@ -349,6 +312,15 @@
 
 .control-btn:active {
   transform: scale(0.9);
+}
+
+.control-btn:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.control-btn:disabled:active {
+  transform: none;
 }
 
 .control-btn--camera {
@@ -400,174 +372,6 @@
 .call-screen[data-phase="live"] .waiting-flip-btn {
   opacity: 0;
   pointer-events: none;
-}
-
-/* More popover */
-.more-popover-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: var(--sheet-z);
-  background: transparent;
-}
-
-.more-popover {
-  position: absolute;
-  left: 50%;
-  top: 31%;
-  transform: translateX(-50%);
-  width: min(322px, calc(100vw - 48px));
-  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 110px);
-  border-radius: var(--radius-more);
-  overflow: hidden;
-  color: #fff;
-  animation: more-open var(--motion-more-open) var(--ease-out-expo);
-}
-
-.more-popover__content {
-  display: block;
-  padding: 22px 24px;
-  overflow: auto;
-  max-height: inherit;
-  scrollbar-width: none;
-  pointer-events: auto;
-}
-
-.more-popover__content::-webkit-scrollbar {
-  display: none;
-}
-
-.more-popover__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.more-popover__row {
-  width: 100%;
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 0;
-  text-align: left;
-  color: inherit;
-}
-
-.more-popover__row:active {
-  opacity: 0.72;
-}
-
-.more-popover__icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.more-popover__icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.more-popover__icon--blue { background: #0a84ff; color: #fff; }
-.more-popover__icon--navy { background: #1c2b4a; color: #fff; }
-.more-popover__icon--white { background: #fff; color: #1aa7a0; }
-.more-popover__icon--black { background: #111; color: #fff; }
-.more-popover__icon--cyan { background: #30b0c7; color: #fff; }
-.more-popover__icon--purple { background: #bf5af2; color: #fff; }
-.more-popover__icon--green { background: #30d158; color: #fff; }
-
-.more-popover__initials {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.more-popover__copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.more-popover__title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.more-popover__subtitle {
-  font-size: 15px;
-  font-weight: 400;
-  color: rgba(255, 214, 170, 0.88);
-  line-height: 1.25;
-}
-
-.more-popover__badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 180, 120, 0.28);
-  color: rgba(255, 220, 190, 0.95);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.more-popover__divider {
-  height: 1px;
-  margin: 4px 0 4px 56px;
-  background: rgba(255, 255, 255, 0.18);
-  transform: scaleY(0.5);
-  transform-origin: top;
-}
-
-/* Capture feedback */
-.capture-flash {
-  position: absolute;
-  inset: 0;
-  background: #fff;
-  opacity: 0;
-  pointer-events: none;
-  z-index: var(--flash-z);
-  transition: opacity 160ms ease;
-}
-
-.capture-flash.is-active {
-  opacity: 1;
-  transition: opacity 40ms ease;
-}
-
-.capture-toast {
-  position: absolute;
-  top: calc(var(--safe-top) + 118px);
-  left: 50%;
-  transform: translateX(-50%) scale(0.96);
-  max-width: min(320px, calc(100vw - 48px));
-  padding: 12px 18px;
-  border-radius: 18px;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-  text-align: center;
-  opacity: 0;
-  pointer-events: none;
-  z-index: var(--toast-z);
-  transition:
-    opacity 180ms ease,
-    transform 180ms var(--ease-out-expo);
-}
-
-.capture-toast.is-visible {
-  opacity: 1;
-  transform: translateX(-50%) scale(1);
 }
 
 .tap-catcher {
@@ -652,40 +456,6 @@
   color: var(--color-white);
 }
 
-.perf-hud {
-  position: absolute;
-  left: calc(var(--safe-left) + 8px);
-  bottom: calc(var(--safe-bottom) + 8px);
-  z-index: 80;
-  font-size: 11px;
-  line-height: 1.35;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #9ff;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  white-space: pre;
-}
-
-@keyframes more-open {
-  0% {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.24);
-    filter: blur(8px);
-  }
-  70% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1.015);
-    filter: blur(0);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
-    filter: blur(0);
-  }
-}
-
 @keyframes chrome-in {
   from {
     opacity: 0;
@@ -712,9 +482,6 @@
   .local-camera-surface,
   .facetime-chrome,
   .remote-video-surface,
-  .more-popover,
-  .capture-toast,
-  .capture-flash,
   .symbol-swap {
     transition-duration: 120ms !important;
     animation-duration: 120ms !important;

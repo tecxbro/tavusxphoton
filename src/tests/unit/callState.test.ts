@@ -1,30 +1,43 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   AUTO_HIDE_MS,
-  STATUS_PILL_MS,
   callReducer,
   canTransition,
   formatDuration,
   getInitials,
+  isActiveCallPhase,
   parseCallSearchParams,
 } from "../../lib/callState";
 import { objectCoverSourceRect } from "../../lib/objectCover";
-import { selectPerformancePolicy } from "../../lib/performance";
 
 describe("call state transitions", () => {
   it("moves through the happy path", () => {
     let phase = callReducer("bootstrapping", { type: "BOOTSTRAP" });
-    expect(phase).toBe("bootstrapping");
     phase = callReducer(phase, { type: "PERMISSIONS_GRANTED" });
-    expect(phase).toBe("dialing");
-    phase = callReducer(phase, { type: "ENTER_CONNECTING" });
+    expect(phase).toBe("ringing");
+    phase = callReducer(phase, { type: "PHO_ANSWERED" });
     expect(phase).toBe("connecting");
     phase = callReducer(phase, { type: "REMOTE_FRAME" });
     expect(phase).toBe("joining");
     phase = callReducer(phase, { type: "JOIN_COMPLETE" });
     expect(phase).toBe("live");
-    phase = callReducer(phase, { type: "END" });
-    expect(phase).toBe("ended");
+  });
+
+  it("ignores REMOTE_FRAME during ringing", () => {
+    expect(callReducer("ringing", { type: "REMOTE_FRAME" })).toBe("ringing");
+  });
+
+  it("ignores PHO_ANSWERED after ringing", () => {
+    expect(callReducer("connecting", { type: "PHO_ANSWERED" })).toBe(
+      "connecting",
+    );
+    expect(callReducer("joining", { type: "PHO_ANSWERED" })).toBe("joining");
+    expect(callReducer("live", { type: "PHO_ANSWERED" })).toBe("live");
+  });
+
+  it("allows ending from ringing", () => {
+    expect(callReducer("ringing", { type: "END" })).toBe("ended");
+    expect(canTransition("ringing", "ended")).toBe(true);
   });
 
   it("handles permission denial", () => {
@@ -35,11 +48,12 @@ describe("call state transitions", () => {
     expect(canTransition("permission-error", "bootstrapping")).toBe(true);
   });
 
-  it("allows ending from early phases", () => {
-    expect(canTransition("dialing", "ended")).toBe(true);
-    expect(canTransition("connecting", "ended")).toBe(true);
-    expect(canTransition("joining", "ended")).toBe(true);
-    expect(canTransition("live", "ended")).toBe(true);
+  it("marks ringing through live as active", () => {
+    expect(isActiveCallPhase("ringing")).toBe(true);
+    expect(isActiveCallPhase("connecting")).toBe(true);
+    expect(isActiveCallPhase("joining")).toBe(true);
+    expect(isActiveCallPhase("live")).toBe(true);
+    expect(isActiveCallPhase("ended")).toBe(false);
   });
 
   it("keeps overlays separate from network phases", () => {
@@ -76,43 +90,36 @@ describe("query parameter parsing", () => {
     });
   });
 
+  it("falls back invalid session IDs to demo", () => {
+    expect(parseCallSearchParams("../evil", "").sessionId).toBe("demo");
+    expect(parseCallSearchParams("has spaces", "").sessionId).toBe("demo");
+  });
+
+  it("trims and caps names at 80 characters", () => {
+    const long = `  ${"A".repeat(100)}  `;
+    expect(parseCallSearchParams("demo", `name=${encodeURIComponent(long)}`).participantName).toHaveLength(
+      80,
+    );
+  });
+
+  it("rejects cross-origin avatar and remote video values", () => {
+    const config = parseCallSearchParams(
+      "demo",
+      "avatar=https://evil.example/a.jpg&remoteVideo=https://evil.example/v.mp4",
+    );
+    expect(config.participantAvatar).toBe("/avatars/pho.jpg");
+    expect(config.remoteVideo).toBe("/videos/mock-agent.mp4");
+  });
+
   it("builds initials", () => {
     expect(getInitials("Pho")).toBe("PH");
     expect(getInitials("Ada Lovelace")).toBe("AL");
   });
 });
 
-describe("performance fallback selection", () => {
-  it("stays full when fps is healthy", () => {
-    expect(selectPerformancePolicy(58, 0, "full").mode).toBe("full");
-  });
-
-  it("reduces then falls back under sustained low fps", () => {
-    expect(selectPerformancePolicy(40, 3000, "full").mode).toBe("reduced");
-    expect(selectPerformancePolicy(40, 3000, "reduced").mode).toBe("fallback");
-    expect(selectPerformancePolicy(60, 0, "full", true).useCssFallback).toBe(
-      true,
-    );
-  });
-});
-
-describe("auto-hide and status timeouts", () => {
-  it("uses the product timeout constants", () => {
+describe("auto-hide timeout", () => {
+  it("uses the product timeout constant", () => {
     expect(AUTO_HIDE_MS).toBe(2000);
-    expect(STATUS_PILL_MS).toBe(2200);
-  });
-
-  it("clears status after timeout", async () => {
-    vi.useFakeTimers();
-    let message: string | null = "microphone-muted";
-    const id = setTimeout(() => {
-      message = null;
-    }, STATUS_PILL_MS);
-    expect(message).toBe("microphone-muted");
-    await vi.advanceTimersByTimeAsync(STATUS_PILL_MS);
-    expect(message).toBeNull();
-    clearTimeout(id);
-    vi.useRealTimers();
   });
 });
 

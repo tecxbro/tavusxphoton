@@ -1,4 +1,4 @@
-import { hapticTap } from "../lib/liquidGlass";
+import { hapticTap } from "../lib/haptics";
 
 interface ParticipantSheetProps {
   name: string;

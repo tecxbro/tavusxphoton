@@ -1,5 +1,3 @@
-import type { RefObject } from "react";
-import { hapticTap } from "../lib/liquidGlass";
 import { SymbolIcon } from "./SymbolIcon";
 import { CallControlButton } from "./CallControlButton";
 
@@ -8,9 +6,7 @@ interface CallControlRailProps {
   audioEnabled: boolean;
   onToggleCamera: () => void;
   onToggleMic: () => void;
-  onMore: () => void;
   onEnd: () => void;
-  moreButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function CallControlRail({
@@ -18,9 +14,7 @@ export function CallControlRail({
   audioEnabled,
   onToggleCamera,
   onToggleMic,
-  onMore,
   onEnd,
-  moreButtonRef,
 }: CallControlRailProps) {
   return (
     <div className="control-rail" role="toolbar" aria-label="Call controls">
@@ -59,16 +53,12 @@ export function CallControlRail({
       </CallControlButton>
 
       <button
-        ref={moreButtonRef}
         type="button"
         className="control-btn control-btn--more liquidGL"
-        aria-label="More options"
-        title="More"
+        aria-label="More options unavailable in test build"
+        title="More options unavailable"
         data-testid="more-button"
-        onClick={() => {
-          hapticTap();
-          onMore();
-        }}
+        disabled
       >
         <span className="content">
           <SymbolIcon name="ellipsis" size={26} />

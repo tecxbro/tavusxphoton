@@ -34,6 +34,8 @@ export function useMediaDevices(): MediaDevicesState {
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
+  const requestGeneration = useRef(0);
+  const requestInFlight = useRef<Promise<MediaStream | null> | null>(null);
 
   const attachStream = useCallback((next: MediaStream) => {
     streamRef.current = next;
@@ -45,24 +47,45 @@ export function useMediaDevices(): MediaDevicesState {
   }, []);
 
   const requestPermissions = useCallback(async () => {
+    if (requestInFlight.current) {
+      return requestInFlight.current;
+    }
+
     setRequesting(true);
     setError(null);
-    try {
-      const media = await getMedia("user", true);
-      stopTracks(streamRef.current);
-      attachStream(media);
-      setFacingMode("user");
-      setVideoEnabled(true);
-      setAudioEnabled(true);
-      return media;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Permission denied";
-      setError(message);
-      return null;
-    } finally {
-      setRequesting(false);
-    }
+    const generation = ++requestGeneration.current;
+
+    const pending = (async (): Promise<MediaStream | null> => {
+      try {
+        const media = await getMedia("user", true);
+        if (generation !== requestGeneration.current) {
+          media.getTracks().forEach((track) => track.stop());
+          return null;
+        }
+        stopTracks(streamRef.current);
+        attachStream(media);
+        setFacingMode("user");
+        setVideoEnabled(true);
+        setAudioEnabled(true);
+        return media;
+      } catch (err) {
+        if (generation !== requestGeneration.current) {
+          return null;
+        }
+        const message =
+          err instanceof Error ? err.message : "Permission denied";
+        setError(message);
+        return null;
+      } finally {
+        if (requestInFlight.current === pending) {
+          requestInFlight.current = null;
+          setRequesting(false);
+        }
+      }
+    })();
+
+    requestInFlight.current = pending;
+    return pending;
   }, [attachStream, stopTracks]);
 
   const toggleVideo = useCallback(() => {
@@ -97,35 +120,41 @@ export function useMediaDevices(): MediaDevicesState {
   const flipCamera = useCallback(async () => {
     const current = streamRef.current;
     if (!current) return null;
+
     const nextFacing: CameraFacing =
       facingMode === "user" ? "environment" : "user";
-    const audioTrack = current.getAudioTracks()[0];
-    const oldVideo = current.getVideoTracks()[0];
-    oldVideo?.stop();
 
     try {
-      const videoOnly = await navigator.mediaDevices.getUserMedia({
+      const replacement = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: nextFacing },
         audio: false,
       });
-      const newVideo = videoOnly.getVideoTracks()[0];
-      const tracks: MediaStreamTrack[] = [];
-      if (newVideo) tracks.push(newVideo);
-      if (audioTrack) tracks.push(audioTrack);
-      const combined = new MediaStream(tracks);
+
+      const newVideo = replacement.getVideoTracks()[0];
+      if (!newVideo) {
+        replacement.getTracks().forEach((track) => track.stop());
+        throw new Error("Replacement camera did not provide a video track");
+      }
+
+      newVideo.enabled = videoEnabled;
+      const oldVideo = current.getVideoTracks()[0];
+      const audioTracks = current.getAudioTracks();
+      const combined = new MediaStream([newVideo, ...audioTracks]);
+
       attachStream(combined);
       setFacingMode(nextFacing);
-      setVideoEnabled(Boolean(newVideo?.enabled));
+      setVideoEnabled(newVideo.enabled);
+      oldVideo?.stop();
+
       return nextFacing;
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to flip camera";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unable to flip camera");
       return null;
     }
-  }, [attachStream, facingMode]);
+  }, [attachStream, facingMode, videoEnabled]);
 
   const stopAll = useCallback(() => {
+    requestGeneration.current += 1;
     stopTracks(streamRef.current);
     streamRef.current = null;
     setStream(null);
@@ -134,6 +163,7 @@ export function useMediaDevices(): MediaDevicesState {
   useEffect(() => {
     return () => {
       stopTracks(streamRef.current);
+      streamRef.current = null;
     };
   }, [stopTracks]);
 

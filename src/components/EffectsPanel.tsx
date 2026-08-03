@@ -5,7 +5,7 @@ import {
   SunMedium,
   X,
 } from "lucide-react";
-import { hapticTap } from "../lib/liquidGlass";
+import { hapticTap } from "../lib/haptics";
 
 type EffectMode = "none" | "portrait" | "studio" | "memoji" | "reactions";
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { hapticTap } from "../lib/liquidGlass";
+import { hapticTap } from "../lib/haptics";
 
 export type ControlVariant = "camera" | "mic" | "more" | "end" | "glass";
 
@@ -11,6 +11,7 @@ interface CallControlButtonProps {
   children: ReactNode;
   className?: string;
   pressed?: boolean;
+  disabled?: boolean;
   testId?: string;
 }
 
@@ -22,6 +23,7 @@ export function CallControlButton({
   children,
   className = "",
   pressed = false,
+  disabled = false,
   testId,
 }: CallControlButtonProps) {
   const variantClass =
@@ -43,7 +45,9 @@ export function CallControlButton({
       title={title}
       aria-pressed={pressed || undefined}
       data-testid={testId}
+      disabled={disabled}
       onClick={() => {
+        if (disabled) return;
         hapticTap();
         onClick();
       }}

@@ -1,26 +1,15 @@
-import { hapticTap } from "../lib/liquidGlass";
 import { SymbolIcon } from "./SymbolIcon";
 
-interface ApertureButtonProps {
-  onClick?: () => void;
-}
-
-export function ApertureButton({ onClick }: ApertureButtonProps) {
+export function ApertureButton() {
   return (
-    <button
-      type="button"
+    <div
       className="aperture-btn liquidGL"
-      aria-label="Effects"
-      title="Effects"
+      aria-hidden="true"
       data-testid="aperture-button"
-      onClick={() => {
-        hapticTap();
-        onClick?.();
-      }}
     >
       <span className="content">
         <SymbolIcon name="aperture" size={22} />
       </span>
-    </button>
+    </div>
   );
 }

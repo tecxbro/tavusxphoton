@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { CallScreen } from "./components/CallScreen";
+import { PhoController } from "./components/PhoController";
 import { parseCallSearchParams } from "./lib/callState";
 
 function CallRoute() {
@@ -14,6 +15,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/call/demo" replace />} />
       <Route path="/call/:sessionId" element={<CallRoute />} />
+      <Route path="/pho-controller" element={<PhoController />} />
       <Route path="*" element={<Navigate to="/call/demo" replace />} />
     </Routes>
   );
