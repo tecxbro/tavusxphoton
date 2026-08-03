@@ -12,7 +12,7 @@
   --color-call-green: #30d158;
   --color-microphone-orange: #ff9f0a;
   --color-end-call: #ff3b30;
-  --color-symbol-off: #ff3b30;
+  --color-destructive: #ff3b30;
   --color-status-cyan: #64d2ff;
   --color-self-placeholder: #1f3a3a;
 
@@ -35,7 +35,15 @@
   --space-edge: 18px;
   --space-control: 12px;
 
+  /* Single global layer hierarchy (lowest → highest):
+     video surfaces → LiquidGL canvas → controls → content → sheets. */
+  --stage-z: 1;
+  --self-fullscreen-z: 5;
+  --tap-z: 10;
+  --self-z: 15;
+  --glass-canvas-z: 20;
   --glass-z: 30;
+  --chrome-z: 31;
   --sheet-z: 50;
   --toast-z: 60;
   --flash-z: 70;

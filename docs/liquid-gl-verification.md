@@ -17,7 +17,9 @@
 - Target selector: `.liquidGL`
 - Snapshot DOM: remote stage + local camera surface inside `.call-visual-stage`
 - Control chrome remains outside the snapshot
-- Glass lenses use a separate `.liquidGL` element; icons and labels sit above that lens
+- Interactive controls themselves are the `.liquidGL` targets; symbols and labels live in a `.content` child above the glass
+- Camera/mic buttons keep the `liquidGL` class in every state and fade a `.control-btn__solid` white surface for enabled states
+- The shared WebGL canvas is adopted into `.liquid-canvas-layer` inside `.call-screen`: video < canvas < controls < content < sheets
 
 ## Active configuration (baseline)
 
@@ -73,7 +75,7 @@ contact-chevron
 more
 ```
 
-SVGs are imported with `?raw` and rendered inline in `SymbolIcon`. Icons must remain above separate LiquidGL lens elements (`*__lens`), not painted under the WebGL canvas.
+SVGs are imported with `?raw` and rendered inline in `SymbolIcon` with per-symbol optical metrics from `src/lib/symbolMetrics.ts`. Symbols inherit their foreground color from the control's `data-control` / `data-active` state rules.
 
 ## Fallback conditions
 

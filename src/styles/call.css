@@ -19,7 +19,7 @@
   height: 100%;
   overflow: hidden;
   background: #000;
-  z-index: 1;
+  z-index: var(--stage-z);
 }
 
 #video-stage {
@@ -75,7 +75,7 @@
   position: absolute;
   overflow: hidden;
   background: #111;
-  z-index: 15;
+  z-index: var(--self-z);
   transform-origin: top right;
   will-change: transform;
 }
@@ -87,7 +87,7 @@
   border-radius: 0;
   border: 0;
   box-shadow: none;
-  z-index: 5;
+  z-index: var(--self-fullscreen-z);
 }
 
 .local-camera-surface[data-mode="expanded"] {
@@ -174,16 +174,23 @@
   object-fit: cover;
 }
 
+/* Positioned in the chrome layer, anchored to the self-view rect so its
+   content stays above the shared LiquidGL canvas. */
 .self-flip-capsule {
   position: absolute;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
   width: 88px;
   height: 38px;
   border-radius: 19px;
   color: #fff;
-  z-index: 2;
+  z-index: var(--glass-z);
+}
+
+/* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
+.self-flip-capsule[data-visible="false"] {
+  display: none;
+}
+
+.self-flip-capsule[data-visible="true"] {
   animation: chrome-in 220ms var(--ease-out-expo);
 }
 
@@ -197,17 +204,30 @@
   pointer-events: none;
 }
 
-.local-camera-surface[data-mode="compact"] .self-flip-capsule,
-.local-camera-surface[data-camera="off"] .self-flip-capsule {
-  opacity: 0;
+/* Shared LiquidGL WebGL canvas lives here: above the video surfaces it
+   refracts, below every control, symbol, and label. */
+.liquid-canvas-layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--glass-canvas-z);
   pointer-events: none;
+  opacity: 1;
+  transition: opacity var(--motion-chrome) ease;
+}
+
+.liquid-canvas-layer canvas {
+  pointer-events: none;
+}
+
+html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
+  opacity: 0;
 }
 
 /* Chrome layer */
 .facetime-chrome {
   position: absolute;
   inset: 0;
-  z-index: calc(var(--glass-z) + 1);
+  z-index: var(--chrome-z);
   pointer-events: none;
   transition:
     opacity var(--motion-chrome) ease,
@@ -240,17 +260,7 @@
   align-items: center;
   color: var(--color-white);
   min-width: 44px;
-  isolation: isolate;
-  overflow: visible;
   transition: width 240ms var(--ease-out-expo);
-}
-
-.contact-pill__lens {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  z-index: 1;
-  pointer-events: none;
 }
 
 .contact-pill__content {
@@ -261,14 +271,6 @@
   gap: 8px;
   padding: 6px 12px 6px 6px;
   pointer-events: none;
-}
-
-.contact-pill__name,
-.contact-pill__chevron,
-.contact-pill__avatar,
-.contact-pill__avatar-fallback {
-  position: relative;
-  z-index: 3;
 }
 
 .contact-pill__avatar,
@@ -319,16 +321,6 @@
   place-items: center;
   color: var(--color-white);
   pointer-events: none;
-  isolation: isolate;
-  overflow: visible;
-}
-
-.effects-btn__lens {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  z-index: 1;
-  pointer-events: none;
 }
 
 .effects-btn__content {
@@ -348,10 +340,11 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-control);
-  z-index: 30;
+  z-index: var(--glass-z);
 }
 
 .control-btn {
+  position: relative;
   width: var(--control-rail);
   height: var(--control-rail);
   min-width: 44px;
@@ -366,45 +359,63 @@
     opacity 160ms ease;
 }
 
-.glass-control,
-.waiting-flip-control {
-  position: relative;
-  width: var(--control-rail);
-  height: var(--control-rail);
-  border-radius: 50%;
-  isolation: isolate;
-  overflow: visible;
+/* Solid surface and content share the same grid cell so both stay centered. */
+.control-btn > * {
+  grid-area: 1 / 1;
 }
 
-.glass-control__lens,
-.waiting-flip-control__lens {
+/* Solid white surface for enabled media states. It sits above the glass the
+   button targets; fading it out reveals LiquidGL for disabled states without
+   ever unmounting the liquidGL target. */
+.control-btn__solid {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   border-radius: inherit;
-  z-index: 1;
+  background: var(--color-white);
+  opacity: 1;
   pointer-events: none;
+  transition: opacity 160ms ease;
+  z-index: 0;
 }
 
-.glass-control__action,
-.waiting-flip-control__action {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: auto;
-  background: transparent;
-}
-
-.glass-control__action > .content,
-.waiting-flip-control__action > .content {
+.control-btn > .content {
   position: relative;
-  z-index: 4;
+  z-index: 1;
+  display: grid;
+  place-items: center;
 }
 
-.glass-control--more {
-  width: var(--control-rail);
-  height: var(--control-rail);
+.control-btn[data-active="false"] .control-btn__solid {
+  opacity: 0;
+}
+
+/* Per-control symbol colors — independent of the button surface. */
+.control-btn[data-control="camera"][data-active="true"] {
+  color: var(--color-call-green);
+}
+
+.control-btn[data-control="camera"][data-active="false"] {
+  color: var(--color-destructive);
+}
+
+.control-btn[data-control="mic"][data-active="true"] {
+  color: var(--color-microphone-orange);
+}
+
+.control-btn[data-control="mic"][data-active="false"] {
+  color: var(--color-destructive);
+}
+
+.control-btn[data-control="more"] {
+  color: var(--color-white);
+}
+
+.control-btn[data-control="end"] {
+  width: var(--control-end);
+  height: var(--control-end);
+  background: var(--color-end-call);
+  color: var(--color-white);
+  overflow: hidden;
 }
 
 .symbol-icon {
@@ -420,12 +431,13 @@
   display: block;
   width: 100%;
   height: 100%;
-  overflow: visible;
+  overflow: hidden;
   fill: currentColor;
 }
 
 .control-btn .symbol-icon {
   opacity: 1;
+  animation: symbol-swap var(--motion-chrome) var(--ease-out-expo);
 }
 
 .control-btn:active {
@@ -444,67 +456,19 @@
   transform: none;
 }
 
-.control-btn--camera,
-.control-btn--mic,
-.control-btn--end {
-  overflow: hidden;
-}
-
-.control-btn--camera {
-  background: var(--color-white);
-  color: var(--color-call-green);
-}
-
-.control-btn--mic {
-  background: var(--color-white);
-  color: var(--color-microphone-orange);
-}
-
-.control-btn--camera .symbol-off,
-.control-btn--mic .symbol-off {
-  color: var(--color-symbol-off);
-}
-
-.control-btn--more {
-  color: var(--color-white);
-}
-
-.control-btn--end {
-  width: var(--control-end);
-  height: var(--control-end);
-  background: var(--color-end-call);
-  color: var(--color-white);
-}
-
-.symbol-swap {
-  display: grid;
-  place-items: center;
-  animation: symbol-swap var(--motion-chrome) var(--ease-out-expo);
-}
-
-.waiting-flip-control {
+.waiting-flip-btn {
   position: absolute;
   left: calc(var(--safe-left) + 22px);
   bottom: calc(var(--safe-bottom) + 38px);
   width: var(--control-waiting-flip);
   height: var(--control-waiting-flip);
-  z-index: 30;
-}
-
-.waiting-flip-btn {
-  width: 100%;
-  height: 100%;
   color: var(--color-white);
+  z-index: var(--glass-z);
 }
 
-.waiting-flip-control[data-visible="false"],
-.call-screen[data-phase="joining"] .waiting-flip-control,
-.call-screen[data-phase="live"] .waiting-flip-control,
-.call-screen[data-phase="ended"] .waiting-flip-control,
-.call-screen[data-phase="bootstrapping"] .waiting-flip-control {
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
+/* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
+.waiting-flip-btn[data-visible="false"] {
+  display: none;
 }
 
 .liquid-glass-debug {
@@ -525,7 +489,7 @@
 .tap-catcher {
   position: absolute;
   inset: 0;
-  z-index: 10;
+  z-index: var(--tap-z);
   background: transparent;
   border: 0;
 }
@@ -607,11 +571,11 @@
 @keyframes chrome-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) scale(0.92);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
 }
 
@@ -630,7 +594,8 @@
   .local-camera-surface,
   .facetime-chrome,
   .remote-video-surface,
-  .symbol-swap {
+  .liquid-canvas-layer,
+  .control-btn .symbol-icon {
     transition-duration: 120ms !important;
     animation-duration: 120ms !important;
   }

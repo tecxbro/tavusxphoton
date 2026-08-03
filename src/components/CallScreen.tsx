@@ -85,7 +85,7 @@ export function CallScreen({ config }: CallScreenProps) {
     stopAll,
   } = useMediaDevices();
 
-  useSafeViewport();
+  const viewport = useSafeViewport();
   const {
     formatted: timerFormatted,
     reset: resetTimer,
@@ -276,37 +276,34 @@ export function CallScreen({ config }: CallScreenProps) {
     };
   }, [clearTransitionTimers, phase]);
 
-  // Mark background ready once local camera has a frame, or the camera-off
-  // placeholder is visible, so LiquidGL can snapshot real pixels.
+  // LiquidGL initializes only after real visual content exists: either the
+  // first presented camera frame (requestVideoFrameCallback with fallback),
+  // or a painted camera-off placeholder (double rAF after commit).
+  const showLocal = isActiveCallPhase(phase);
+
   useEffect(() => {
-    if (!isActiveCallPhase(phase)) {
+    if (!showLocal) {
       setBackgroundReady(false);
-      return;
     }
+  }, [showLocal]);
 
-    if (!videoEnabled) {
-      setBackgroundReady(true);
-      return;
-    }
+  useFirstVideoFrame(
+    localVideoRef,
+    showLocal && videoEnabled && !backgroundReady,
+    () => setBackgroundReady(true),
+  );
 
-    const video = localVideoRef.current;
-    if (!video) {
-      setBackgroundReady(Boolean(stream));
-      return;
-    }
-
-    const markReady = () => setBackgroundReady(true);
-    if (video.readyState >= 2) {
-      markReady();
-      return;
-    }
-    video.addEventListener("loadeddata", markReady);
-    video.addEventListener("playing", markReady);
+  useEffect(() => {
+    if (!showLocal || videoEnabled || backgroundReady) return;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => setBackgroundReady(true));
+    });
     return () => {
-      video.removeEventListener("loadeddata", markReady);
-      video.removeEventListener("playing", markReady);
+      window.cancelAnimationFrame(first);
+      if (second) window.cancelAnimationFrame(second);
     };
-  }, [phase, stream, videoEnabled]);
+  }, [showLocal, videoEnabled, backgroundReady]);
 
   const flipCamera = useCallback(() => {
     hapticTap();
@@ -323,11 +320,44 @@ export function CallScreen({ config }: CallScreenProps) {
   );
 
   const mode = localModeFor(phase, controlsVisible);
-  const showLocal = isActiveCallPhase(phase);
   const showChrome =
     isActiveCallPhase(phase) && (phase !== "live" || controlsVisible);
   const showWaitingFlip = phase === "ringing" || phase === "connecting";
   const showLiveExtras = phase === "joining" || phase === "live";
+
+  // The flip capsule lives in the chrome layer (above the LiquidGL canvas)
+  // and tracks the self-view rect. It hides during drags and morphs, then
+  // reappears at the settled position.
+  const [selfRect, setSelfRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (mode === "fullscreen" || dragging) {
+      setSelfRect(null);
+      return;
+    }
+    const node = dragNodeRef.current;
+    if (!node) {
+      setSelfRect(null);
+      return;
+    }
+    setSelfRect(node.getBoundingClientRect());
+  }, [mode, dragging, dragPosition, phase, controlsVisible, viewport, videoEnabled, dragNodeRef]);
+
+  const capsuleVisible =
+    showLiveExtras &&
+    controlsVisible &&
+    mode === "expanded" &&
+    videoEnabled &&
+    !dragging &&
+    selfRect !== null;
+
+  const capsuleStyle = useMemo(() => {
+    if (!selfRect) return undefined;
+    return {
+      top: selfRect.bottom - 48,
+      left: selfRect.left + selfRect.width / 2 - 44,
+    } as CSSProperties;
+  }, [selfRect]);
 
   const { mode: liquidMode } = useLiquidGlass({
     enabled: showLocal,
@@ -335,6 +365,7 @@ export function CallScreen({ config }: CallScreenProps) {
     phase,
     controlsVisible: showChrome,
     layoutMode: mode,
+    videoEnabled,
   });
 
   const selfStyle = useMemo(() => {
@@ -379,6 +410,9 @@ export function CallScreen({ config }: CallScreenProps) {
               data-revealed={
                 phase === "joining" || phase === "live" || undefined
               }
+              data-liquid-ignore={
+                phase === "joining" || phase === "live" ? undefined : ""
+              }
               data-testid="remote-video"
               aria-hidden={!showRemote}
             />
@@ -394,11 +428,9 @@ export function CallScreen({ config }: CallScreenProps) {
             mode={mode}
             selfName="You"
             selfAvatar={config.selfAvatar}
-            showFlipCapsule={showLiveExtras && controlsVisible}
             style={selfStyle}
             nodeRef={dragNodeRef}
             videoRef={localVideoRef}
-            onFlip={flipCamera}
             draggable={dragEnabled}
             onPointerDown={onSelfPointerDown}
             onPointerMove={onDragPointerMove}
@@ -406,6 +438,8 @@ export function CallScreen({ config }: CallScreenProps) {
           />
         )}
       </div>
+
+      <div className="liquid-canvas-layer" aria-hidden="true" />
 
       {phase === "live" && !controlsVisible && (
         <button
@@ -444,31 +478,39 @@ export function CallScreen({ config }: CallScreenProps) {
           onEnd={endCall}
         />
 
-        <div
-          className="waiting-flip-control"
+        <button
+          type="button"
+          className="self-flip-capsule liquidGL"
+          data-visible={capsuleVisible}
+          style={capsuleStyle}
+          aria-hidden={!capsuleVisible}
+          aria-label="Flip camera"
+          title="Flip camera"
+          onClick={flipCamera}
+          data-testid="self-flip"
+          tabIndex={capsuleVisible ? 0 : -1}
+        >
+          <span className="content self-flip-capsule__content">
+            <SymbolIcon name="flip-camera" size={14} />
+            <span>Flip</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="waiting-flip-btn control-btn liquidGL"
           data-visible={showWaitingFlip}
           aria-hidden={!showWaitingFlip}
+          aria-label="Switch camera"
+          title="Switch camera"
+          onClick={flipCamera}
+          data-testid="waiting-flip"
+          tabIndex={showWaitingFlip ? 0 : -1}
         >
-          <span
-            className="waiting-flip-control__lens liquidGL"
-            data-glass-shape="circle"
-            aria-hidden="true"
-          />
-
-          <button
-            type="button"
-            className="waiting-flip-btn control-btn waiting-flip-control__action"
-            aria-label="Switch camera"
-            title="Switch camera"
-            onClick={flipCamera}
-            data-testid="waiting-flip"
-            tabIndex={showWaitingFlip ? 0 : -1}
-          >
-            <span className="content">
-              <SymbolIcon name="flip-camera" size={26} />
-            </span>
-          </button>
-        </div>
+          <span className="content">
+            <SymbolIcon name="flip-camera" />
+          </span>
+        </button>
       </div>
 
       {showGlassDebug && debug ? (

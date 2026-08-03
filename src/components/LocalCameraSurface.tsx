@@ -7,8 +7,6 @@ import {
 } from "react";
 import { getInitials } from "../lib/callState";
 import { useLayoutMorph } from "../hooks/useLayoutMorph";
-import { hapticTap } from "../lib/haptics";
-import { SymbolIcon } from "./SymbolIcon";
 
 export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
 
@@ -19,11 +17,9 @@ interface LocalCameraSurfaceProps {
   mode: LocalCameraMode;
   selfName: string;
   selfAvatar?: string;
-  showFlipCapsule: boolean;
   style?: CSSProperties;
   nodeRef: RefObject<HTMLDivElement | null>;
   videoRef?: RefObject<HTMLVideoElement | null>;
-  onFlip?: () => void;
   onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerMove?: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp?: (event: PointerEvent<HTMLDivElement>) => void;
@@ -37,11 +33,9 @@ export function LocalCameraSurface({
   mode,
   selfName,
   selfAvatar,
-  showFlipCapsule,
   style,
   nodeRef,
   videoRef,
-  onFlip,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -94,6 +88,7 @@ export function LocalCameraSurface({
         playsInline
         muted
         data-testid="local-video"
+        data-liquid-ignore={videoEnabled ? undefined : ""}
       />
 
       <div className="local-camera-surface__placeholder" aria-hidden={videoEnabled}>
@@ -105,26 +100,6 @@ export function LocalCameraSurface({
           )}
         </div>
       </div>
-
-      {showFlipCapsule && mode === "expanded" && videoEnabled && (
-        <button
-          type="button"
-          className="self-flip-capsule liquidGL"
-          aria-label="Flip camera"
-          data-testid="self-flip"
-          onClick={(event) => {
-            event.stopPropagation();
-            hapticTap();
-            onFlip?.();
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <span className="content self-flip-capsule__content">
-            <SymbolIcon name="flip-camera" size={16} />
-            <span>Flip</span>
-          </span>
-        </button>
-      )}
     </div>
   );
 }

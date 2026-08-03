@@ -16,18 +16,13 @@ export function ContactPill({
 
   return (
     <div
-      className="contact-pill"
+      className="contact-pill liquidGL"
       role="status"
       aria-live="polite"
       title={label}
       data-testid="contact-pill"
       data-connecting={connecting || undefined}
     >
-      <span
-        className="contact-pill__lens liquidGL"
-        data-glass-shape="pill"
-        aria-hidden="true"
-      />
       <span className="content contact-pill__content">
         {avatar ? (
           <img
@@ -55,7 +50,6 @@ export function ContactPill({
           <SymbolIcon
             className="contact-pill__chevron"
             name="contact-chevron"
-            size={14}
           />
         )}
       </span>

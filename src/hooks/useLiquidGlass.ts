@@ -13,6 +13,7 @@ export interface UseLiquidGlassInput {
   phase: CallPhase;
   controlsVisible: boolean;
   layoutMode: LocalCameraMode;
+  videoEnabled: boolean;
 }
 
 export interface UseLiquidGlassResult {
@@ -27,6 +28,7 @@ export function useLiquidGlass({
   phase,
   controlsVisible,
   layoutMode,
+  videoEnabled,
 }: UseLiquidGlassInput): UseLiquidGlassResult {
   const [mode, setMode] = useState<LiquidGlassMode>("initializing");
   const [error, setError] = useState<string | null>(null);
@@ -63,10 +65,14 @@ export function useLiquidGlass({
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         controller.refresh();
+        controller.recapture();
         syncMode();
       }
     };
-    const onOrientation = () => controller.refresh();
+    const onOrientation = () => {
+      controller.refresh();
+      controller.recapture();
+    };
     const onResize = () => controller.refresh();
 
     document.addEventListener("visibilitychange", onVisibility);
@@ -89,9 +95,28 @@ export function useLiquidGlass({
     };
   }, [enabled, backgroundReady]);
 
+  // Lens metric updates: controls move/resize, chrome fades, layout morphs.
   useEffect(() => {
     controllerRef.current?.refresh();
   }, [phase, controlsVisible, layoutMode]);
+
+  // Phase-driven layout changes alter the content behind the glass.
+  useEffect(() => {
+    controllerRef.current?.recapture();
+  }, [phase]);
+
+  // Camera toggles: immediately drop the stale video frame from the glass
+  // texture (the renderer stops blitting but never erases), then recapture
+  // once the placeholder cross-fade has settled (debounced).
+  useEffect(() => {
+    controllerRef.current?.syncVideoRegions();
+    controllerRef.current?.recapture();
+  }, [videoEnabled]);
+
+  // Keep the glass canvas visibility in sync with the chrome fade.
+  useEffect(() => {
+    controllerRef.current?.setChromeVisible(controlsVisible);
+  }, [controlsVisible]);
 
   return {
     mode,

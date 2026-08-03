@@ -9,16 +9,9 @@ import effectsSvg from "../assets/call-symbols/effects.svg?raw";
 import contactChevronSvg from "../assets/call-symbols/contact-chevron.svg?raw";
 import moreSvg from "../assets/call-symbols/more.svg?raw";
 
-export type SymbolName =
-  | "camera-on"
-  | "camera-off"
-  | "microphone-on"
-  | "microphone-off"
-  | "end-call"
-  | "flip-camera"
-  | "effects"
-  | "contact-chevron"
-  | "more";
+import { SYMBOL_METRICS, type SymbolName } from "../lib/symbolMetrics";
+
+export type { SymbolName } from "../lib/symbolMetrics";
 
 // Local Apple-exported SVG files are rendered inline so they do not depend on CSS masks.
 const SYMBOL_ASSETS: Record<SymbolName, string> = {
@@ -35,25 +28,27 @@ const SYMBOL_ASSETS: Record<SymbolName, string> = {
 
 interface SymbolIconProps {
   name: SymbolName;
-  size?: number | string;
+  /** Optional optical height override; width scales with the symbol aspect. */
+  size?: number;
   className?: string;
   style?: CSSProperties;
 }
 
-export function SymbolIcon({
-  name,
-  size = "1em",
-  className,
-  style,
-}: SymbolIconProps) {
+export function SymbolIcon({ name, size, className, style }: SymbolIconProps) {
   const asset = SYMBOL_ASSETS[name];
+  const metric = SYMBOL_METRICS[name];
+  const scale = size !== undefined ? size / metric.height : 1;
+  const width = Math.round(metric.width * scale * 100) / 100;
+  const height = Math.round(metric.height * scale * 100) / 100;
+
   return (
     <span
       aria-hidden="true"
       className={`symbol-icon ${className ?? ""}`.trim()}
+      data-symbol={name}
       style={{
-        width: size,
-        height: size,
+        width,
+        height,
         ...style,
       }}
       dangerouslySetInnerHTML={{ __html: asset }}

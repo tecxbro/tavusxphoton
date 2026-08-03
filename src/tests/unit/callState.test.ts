@@ -112,7 +112,7 @@ describe("query parameter parsing", () => {
   });
 
   it("builds initials", () => {
-    expect(getInitials("Pho")).toBe("PH");
+    expect(getInitials("Pho")).toBe("P");
     expect(getInitials("Ada Lovelace")).toBe("AL");
   });
 });

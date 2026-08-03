@@ -16,6 +16,9 @@ export function CallControlRail({
   onToggleMic,
   onEnd,
 }: CallControlRailProps) {
+  const cameraSymbol = videoEnabled ? "camera-on" : "camera-off";
+  const micSymbol = audioEnabled ? "microphone-on" : "microphone-off";
+
   return (
     <div className="control-rail" role="toolbar" aria-label="Call controls">
       <CallControlButton
@@ -23,16 +26,11 @@ export function CallControlRail({
         ariaLabel={videoEnabled ? "Turn off camera" : "Turn on camera"}
         title={videoEnabled ? "Turn off camera" : "Turn on camera"}
         pressed={!videoEnabled}
+        active={videoEnabled}
         onClick={onToggleCamera}
         testId="toggle-camera"
       >
-        <span className="symbol-swap" data-off={!videoEnabled || undefined}>
-          <SymbolIcon
-            name={videoEnabled ? "camera-on" : "camera-off"}
-            size={30}
-            className={videoEnabled ? "symbol-on" : "symbol-off"}
-          />
-        </span>
+        <SymbolIcon key={cameraSymbol} name={cameraSymbol} />
       </CallControlButton>
 
       <CallControlButton
@@ -40,38 +38,23 @@ export function CallControlRail({
         ariaLabel={audioEnabled ? "Mute microphone" : "Unmute microphone"}
         title={audioEnabled ? "Mute microphone" : "Unmute microphone"}
         pressed={!audioEnabled}
+        active={audioEnabled}
         onClick={onToggleMic}
         testId="toggle-mic"
       >
-        <span className="symbol-swap" data-off={!audioEnabled || undefined}>
-          <SymbolIcon
-            name={audioEnabled ? "microphone-on" : "microphone-off"}
-            size={30}
-            className={audioEnabled ? "symbol-on" : "symbol-off"}
-          />
-        </span>
+        <SymbolIcon key={micSymbol} name={micSymbol} />
       </CallControlButton>
 
-      <div className="glass-control glass-control--more">
-        <span
-          className="glass-control__lens liquidGL"
-          data-glass-shape="circle"
-          aria-hidden="true"
-        />
-
-        <button
-          type="button"
-          className="control-btn control-btn--more glass-control__action"
-          aria-label="More options"
-          title="More options"
-          data-testid="more-button"
-          disabled
-        >
-          <span className="content">
-            <SymbolIcon name="more" size={28} />
-          </span>
-        </button>
-      </div>
+      <CallControlButton
+        variant="more"
+        ariaLabel="More options"
+        title="More options"
+        onClick={() => undefined}
+        testId="more-button"
+        disabled
+      >
+        <SymbolIcon name="more" />
+      </CallControlButton>
 
       <CallControlButton
         variant="end"
@@ -80,7 +63,7 @@ export function CallControlRail({
         onClick={onEnd}
         testId="end-call"
       >
-        <SymbolIcon name="end-call" size={32} />
+        <SymbolIcon name="end-call" />
       </CallControlButton>
     </div>
   );
