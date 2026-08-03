@@ -28,9 +28,9 @@
   --control-waiting-flip: 50px;
   --control-capture: 44px;
 
-  --self-expanded-width: clamp(118px, 29.1vw, 132px);
+  --self-expanded-width: clamp(120px, 29.5vw, 134px);
   --self-compact-width: clamp(88px, 21.8vw, 98px);
-  --self-aspect: 0.455;
+  --self-aspect: 0.46;
 
   --space-edge: 18px;
   --space-control: 12px;

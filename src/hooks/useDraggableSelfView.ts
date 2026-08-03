@@ -12,6 +12,12 @@ export interface CornerPosition {
   left: number;
 }
 
+type SelfViewCorner =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
 interface DragState {
   startX: number;
   startY: number;
@@ -25,6 +31,13 @@ interface DragOptions {
 
 const STORAGE_KEY = "mini-pho-self-view";
 
+const VALID_CORNERS: ReadonlySet<string> = new Set([
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+]);
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -34,26 +47,39 @@ function anchors(
   height: number,
   bounds: DOMRect,
   compact: boolean,
-): CornerPosition[] {
+): Record<SelfViewCorner, CornerPosition> {
   const rightPad = 24;
   const leftPad = 18;
   const topExpanded = 68;
   const topCompact = 18;
   const railReserve = compact ? 24 : 280;
+
   const safeLeft = leftPad;
   const safeRight = bounds.width - width - rightPad;
-  const safeTop = (compact ? topCompact : topExpanded) + 8;
+  const safeTop = compact ? topCompact : topExpanded;
   const safeBottom = Math.max(
     safeTop,
     bounds.height - height - railReserve,
   );
 
-  return [
-    { left: safeLeft, top: safeTop },
-    { left: safeRight, top: safeTop },
-    { left: safeLeft, top: safeBottom },
-    { left: safeRight, top: safeBottom },
-  ];
+  return {
+    "top-left": {
+      left: safeLeft,
+      top: safeTop,
+    },
+    "top-right": {
+      left: safeRight,
+      top: safeTop,
+    },
+    "bottom-left": {
+      left: safeLeft,
+      top: safeBottom,
+    },
+    "bottom-right": {
+      left: safeRight,
+      top: safeBottom,
+    },
+  };
 }
 
 function nearestCorner(
@@ -63,20 +89,25 @@ function nearestCorner(
   height: number,
   bounds: DOMRect,
   compact: boolean,
-): CornerPosition {
+): { corner: SelfViewCorner; position: CornerPosition } {
   const corners = anchors(width, height, bounds, compact);
-  let best = corners[1];
+  let bestCorner: SelfViewCorner = "top-right";
   let bestDist = Number.POSITIVE_INFINITY;
-  for (const corner of corners) {
-    const dx = corner.left - left;
-    const dy = corner.top - top;
+  for (const [name, position] of Object.entries(corners) as Array<
+    [SelfViewCorner, CornerPosition]
+  >) {
+    const dx = position.left - left;
+    const dy = position.top - top;
     const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
       bestDist = dist;
-      best = corner;
+      bestCorner = name;
     }
   }
-  return best;
+  return {
+    corner: bestCorner,
+    position: corners[bestCorner],
+  };
 }
 
 export function useDraggableSelfView(
@@ -85,6 +116,7 @@ export function useDraggableSelfView(
   options: DragOptions = {},
 ) {
   const compact = options.compact ?? false;
+  const [corner, setCorner] = useState<SelfViewCorner | null>(null);
   const [position, setPosition] = useState<CornerPosition | null>(null);
   const [dragging, setDragging] = useState(false);
   const [boundsVersion, setBoundsVersion] = useState(0);
@@ -99,17 +131,19 @@ export function useDraggableSelfView(
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CornerPosition;
-        if (
-          typeof parsed.left === "number" &&
-          typeof parsed.top === "number"
-        ) {
-          setPosition(parsed);
-        }
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (typeof parsed === "string" && VALID_CORNERS.has(parsed)) {
+        setCorner(parsed as SelfViewCorner);
+        return;
       }
+      sessionStorage.removeItem(STORAGE_KEY);
+      setCorner(null);
+      setPosition(null);
     } catch {
-      // ignore
+      sessionStorage.removeItem(STORAGE_KEY);
+      setCorner(null);
+      setPosition(null);
     }
   }, []);
 
@@ -123,15 +157,20 @@ export function useDraggableSelfView(
     };
   }, []);
 
-  const persist = useCallback((next: CornerPosition) => {
-    setPosition(next);
-    positionRef.current = next;
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
-  }, []);
+  const persist = useCallback(
+    (nextCorner: SelfViewCorner, nextPosition: CornerPosition) => {
+      setCorner(nextCorner);
+      setPosition(nextPosition);
+      positionRef.current = nextPosition;
+
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextCorner));
+      } catch {
+        // ignore
+      }
+    },
+    [],
+  );
 
   const clearMoveFrame = useCallback(() => {
     if (moveFrame.current != null) {
@@ -226,50 +265,36 @@ export function useDraggableSelfView(
     if (nodeRef.current) {
       nodeRef.current.style.transform = "";
     }
-    persist(snapped);
+    persist(snapped.corner, snapped.position);
     setDragging(false);
     drag.current = null;
     livePosition.current = null;
   }, [clearMoveFrame, compact, containerRef, persist]);
 
   useEffect(() => {
-    if (!enabled || !containerRef.current || !nodeRef.current) return;
+    if (
+      !enabled ||
+      !corner ||
+      !containerRef.current ||
+      !nodeRef.current
+    ) {
+      return;
+    }
     const bounds = containerRef.current.getBoundingClientRect();
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
     if (width <= 0 || height <= 0) return;
 
-    const current = positionRef.current ?? {
-      left: bounds.width - width - 24,
-      top: compact ? 18 : 68,
-    };
-    const maxLeft = bounds.width - width - 8;
-    const maxTop = bounds.height - height - 100;
-    const outside =
-      !positionRef.current ||
-      current.left < 8 ||
-      current.left > maxLeft ||
-      current.top < 8 ||
-      current.top > maxTop;
-
-    if (!outside) return;
-
-    const snapped = nearestCorner(
-      current.left,
-      current.top,
-      width,
-      height,
-      bounds,
-      compact,
-    );
+    const nextPosition = anchors(width, height, bounds, compact)[corner];
     if (
       !positionRef.current ||
-      snapped.left !== positionRef.current.left ||
-      snapped.top !== positionRef.current.top
+      nextPosition.left !== positionRef.current.left ||
+      nextPosition.top !== positionRef.current.top
     ) {
-      persist(snapped);
+      setPosition(nextPosition);
+      positionRef.current = nextPosition;
     }
-  }, [boundsVersion, compact, containerRef, enabled, persist]);
+  }, [boundsVersion, compact, containerRef, corner, enabled]);
 
   useEffect(() => () => clearMoveFrame(), [clearMoveFrame]);
 
