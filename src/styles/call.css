@@ -1,14 +1,25 @@
 .call-screen {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100dvh;
+  width: var(--vv-width, 100vw);
   height: var(--vv-height, 100dvh);
   overflow: hidden;
   background: #000;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
+  font-family: var(--font-system);
+}
+
+.call-visual-stage,
+#liquid-gl-snapshot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  z-index: var(--stage-z);
 }
 
 #video-stage {
@@ -20,20 +31,29 @@
   background: #000;
 }
 
-.remote-video,
-.remote-video-bg {
+.remote-video-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+.remote-video-surface {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--motion-join) var(--ease-out-expo);
 }
 
-.remote-video-bg {
-  filter: blur(22px);
-  transform: scale(1.08);
-  opacity: 0;
-  pointer-events: none;
+.remote-video-surface[data-active] {
+  visibility: visible;
+}
+
+.remote-video-surface[data-revealed] {
+  opacity: 1;
 }
 
 .video-overlay {
@@ -42,140 +62,244 @@
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.18) 0%,
-    transparent 28%,
-    transparent 68%,
-    rgba(0, 0, 0, 0.16) 100%
+    rgba(0, 0, 0, 0.14) 0%,
+    transparent 24%,
+    transparent 72%,
+    rgba(0, 0, 0, 0.12) 100%
   );
   z-index: 1;
 }
 
-.call-screen.is-effects #video-stage {
-  background: #000;
-  display: flex;
+/* Persistent local camera surface */
+.local-camera-surface {
+  position: absolute;
+  overflow: hidden;
+  background: #111;
+  z-index: var(--self-z);
+  transform-origin: top right;
+  will-change: transform;
+}
+
+.local-camera-surface[data-mode="fullscreen"] {
+  inset: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  z-index: var(--self-fullscreen-z);
+}
+
+.local-camera-surface[data-mode="expanded"] {
+  top: calc(var(--safe-top) + 68px);
+  right: calc(var(--safe-right) + 24px);
+  left: auto;
+  bottom: auto;
+  width: var(--self-expanded-width);
+  aspect-ratio: var(--self-aspect);
+  height: auto;
+  border-radius: var(--radius-self-expanded);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+  transition:
+    border-radius var(--motion-self) var(--ease-out-expo),
+    box-shadow var(--motion-self) ease;
+}
+
+.local-camera-surface[data-mode="compact"] {
+  top: calc(var(--safe-top) + 18px);
+  right: calc(var(--safe-right) + 24px);
+  left: auto;
+  bottom: auto;
+  width: var(--self-compact-width);
+  aspect-ratio: var(--self-aspect);
+  height: auto;
+  border-radius: var(--radius-self-compact);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
+  transition:
+    border-radius var(--motion-self) var(--ease-out-expo),
+    box-shadow var(--motion-self) ease;
+}
+
+.local-camera-surface__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+  transition: opacity 260ms ease;
+}
+
+.local-camera-surface.is-mirrored .local-camera-surface__video {
+  transform: scaleX(-1);
+}
+
+.local-camera-surface__placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-self-placeholder);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    filter 260ms ease;
+}
+
+.local-camera-surface[data-camera="off"] .local-camera-surface__video {
+  opacity: 0;
+}
+
+.local-camera-surface[data-camera="off"] .local-camera-surface__placeholder {
+  opacity: 1;
+}
+
+.local-camera-surface__avatar {
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #0e1c1c;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: clamp(14px, 4.2vw, 22px);
+  font-weight: 600;
+}
+
+.local-camera-surface__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Positioned in the chrome layer, anchored to the self-view rect so its
+   content stays above the shared LiquidGL canvas. */
+.self-flip-capsule {
+  position: absolute;
+  width: 88px;
+  height: 38px;
+  border-radius: 19px;
+  color: #fff;
+  z-index: var(--glass-z);
+}
+
+/* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
+.self-flip-capsule[data-visible="false"] {
+  display: none;
+}
+
+.self-flip-capsule[data-visible="true"] {
+  animation: chrome-in 220ms var(--ease-out-expo);
+}
+
+.self-flip-capsule__content {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.call-screen.is-effects .remote-video-wrap {
-  position: relative;
-  width: min(78vw, 420px);
-  max-height: 68dvh;
-  aspect-ratio: 0.72;
-  border-radius: var(--radius-video);
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-}
-
-.call-screen.is-effects .remote-video {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-video);
-}
-
-.call-screen.is-effects.effect-portrait .remote-video-bg {
-  opacity: 1;
-}
-
-.call-screen.is-effects.effect-portrait .remote-video {
-  filter: contrast(1.03) saturate(1.02);
-  clip-path: inset(8% 12% 8% 12% round 36px);
-}
-
-.call-screen.is-effects.effect-studio .remote-video {
-  filter:
-    brightness(1.08)
-    contrast(1.08)
-    saturate(0.96);
-}
-
-.call-screen.is-effects.effect-studio .studio-light {
-  opacity: 1;
-}
-
-.remote-video-wrap {
-  position: absolute;
-  inset: 0;
-}
-
-.studio-light {
-  position: absolute;
-  inset: 0;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
   pointer-events: none;
+}
+
+/* Shared LiquidGL WebGL canvas lives here: above the video surfaces it
+   refracts, below every control, symbol, and label. */
+.liquid-canvas-layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--glass-canvas-z);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity var(--motion-chrome) ease;
+}
+
+.liquid-canvas-layer canvas {
+  pointer-events: none;
+}
+
+html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   opacity: 0;
-  background: radial-gradient(
-    circle at 50% 38%,
-    rgba(255, 245, 230, 0.28) 0%,
-    rgba(255, 245, 230, 0.08) 28%,
-    transparent 58%
-  );
-  transition: opacity 180ms ease;
-  z-index: 2;
 }
 
-.controls-layer {
+/* Chrome layer */
+.facetime-chrome {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: var(--chrome-z);
   pointer-events: none;
+  transition:
+    opacity var(--motion-chrome) ease,
+    transform var(--motion-chrome) var(--ease-out-expo);
 }
 
-.controls-layer > * {
+.facetime-chrome > * {
   pointer-events: auto;
 }
 
-.controls-layer.is-hidden {
+.facetime-chrome.is-hidden {
   opacity: 0;
-  transform: translateY(8px);
+  transform: scale(0.96);
   pointer-events: none;
 }
 
-.controls-layer.is-visible {
+.facetime-chrome.is-visible {
   opacity: 1;
-  transform: translateY(0);
-}
-
-.controls-layer {
-  transition:
-    opacity 180ms ease,
-    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: scale(1);
 }
 
 .contact-pill {
   position: absolute;
-  top: calc(var(--safe-top) + 16px);
+  top: calc(var(--safe-top) + 14px);
   left: calc(var(--safe-left) + 18px);
-  height: 58px;
-  max-width: min(70vw, 270px);
-  border-radius: 29px;
+  height: 44px;
+  max-width: min(68vw, 270px);
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px 0 10px;
   color: var(--color-white);
   min-width: 44px;
+  transition: width 240ms var(--ease-out-expo);
 }
 
-.contact-pill__avatar {
-  width: 38px;
-  height: 38px;
+.contact-pill__content {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  pointer-events: none;
+}
+
+.contact-pill__avatar,
+.contact-pill__avatar-fallback {
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  background: #333;
+  background: #222;
+}
+
+.contact-pill__avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
 }
 
 .contact-pill__text {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
 }
 
 .contact-pill__name {
+  display: block;
   font-size: 17px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -188,72 +312,41 @@
 
 .effects-btn {
   position: absolute;
-  top: calc(var(--safe-top) + 16px);
-  right: calc(var(--safe-right) + 18px);
-  width: 58px;
-  height: 58px;
+  top: calc(var(--safe-top) + 14px);
+  right: calc(var(--safe-right) + 20px);
+  width: var(--control-top);
+  height: var(--control-top);
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: var(--color-white);
+  pointer-events: none;
 }
 
-.self-view {
-  position: absolute;
-  top: calc(var(--safe-top) + 92px);
-  right: calc(var(--safe-right) + 18px);
-  width: clamp(92px, 25vw, 116px);
-  aspect-ratio: 0.64;
-  border-radius: var(--radius-preview);
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-  background: #1c1c1e;
-  z-index: 25;
-  touch-action: none;
-}
-
-.self-view video {
+.effects-btn__content {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-.self-view.is-mirrored video {
-  transform: scaleX(-1);
-}
-
-.self-view__placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: #2c2c2e;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.self-view__initials {
-  font-size: 28px;
-  font-weight: 600;
 }
 
 .control-rail {
   position: absolute;
-  right: calc(var(--safe-right) + 18px);
-  bottom: calc(var(--safe-bottom) + 30px);
+  right: calc(var(--safe-right) + 24px);
+  bottom: calc(var(--safe-bottom) + 34px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  z-index: 30;
+  gap: var(--space-control);
+  z-index: var(--glass-z);
 }
 
 .control-btn {
-  width: var(--control-small);
-  height: var(--control-small);
+  position: relative;
+  width: var(--control-rail);
+  height: var(--control-rail);
   min-width: 44px;
   min-height: 44px;
   border-radius: 50%;
@@ -261,116 +354,147 @@
   place-items: center;
   transform: scale(1);
   transition:
-    transform 140ms ease,
-    filter 140ms ease,
-    opacity 140ms ease;
+    transform 90ms ease,
+    filter 90ms ease,
+    opacity 160ms ease;
 }
 
-.control-btn:active {
-  transform: scale(0.92);
-  filter: brightness(1.12);
+/* Solid surface and content share the same grid cell so both stay centered. */
+.control-btn > * {
+  grid-area: 1 / 1;
 }
 
-.control-btn--camera {
+/* Solid white surface for enabled media states. It sits above the glass the
+   button targets; fading it out reveals LiquidGL for disabled states without
+   ever unmounting the liquidGL target. */
+.control-btn__solid {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   background: var(--color-white);
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+  z-index: 0;
+}
+
+.control-btn > .content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+}
+
+.control-btn[data-active="false"] .control-btn__solid {
+  opacity: 0;
+}
+
+/* Per-control symbol colors — independent of the button surface. */
+.control-btn[data-control="camera"][data-active="true"] {
   color: var(--color-call-green);
 }
 
-.control-btn--mic {
-  background: var(--color-white);
+.control-btn[data-control="camera"][data-active="false"] {
+  color: var(--color-destructive);
+}
+
+.control-btn[data-control="mic"][data-active="true"] {
   color: var(--color-microphone-orange);
 }
 
-.control-btn--more {
+.control-btn[data-control="mic"][data-active="false"] {
+  color: var(--color-destructive);
+}
+
+.control-btn[data-control="more"] {
   color: var(--color-white);
 }
 
-.control-btn--end {
+.control-btn[data-control="end"] {
   width: var(--control-end);
   height: var(--control-end);
   background: var(--color-end-call);
   color: var(--color-white);
+  overflow: hidden;
 }
 
-.flip-btn {
-  position: absolute;
-  left: calc(var(--safe-left) + 24px);
-  bottom: calc(var(--safe-bottom) + 42px);
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  display: grid;
+.symbol-icon {
+  display: inline-grid;
   place-items: center;
-  color: var(--color-white);
-  z-index: 30;
+  flex: 0 0 auto;
+  color: inherit;
+  line-height: 0;
+  pointer-events: none;
 }
 
-.status-pill {
+.symbol-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  fill: currentColor;
+}
+
+.control-btn .symbol-icon {
+  opacity: 1;
+  animation: symbol-swap var(--motion-chrome) var(--ease-out-expo);
+}
+
+.control-btn:active {
+  transform: scale(0.9);
+}
+
+.control-btn:disabled {
+  cursor: default;
+}
+
+.control-btn--more:disabled {
+  opacity: 1;
+}
+
+.control-btn:disabled:active {
+  transform: none;
+}
+
+.waiting-flip-btn {
   position: absolute;
-  top: calc(var(--safe-top) + 82px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(270px, calc(100vw - 40px));
-  min-height: 68px;
-  border-radius: 34px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 18px;
-  z-index: var(--toast-z);
+  left: calc(var(--safe-left) + 22px);
+  bottom: calc(var(--safe-bottom) + 38px);
+  width: var(--control-waiting-flip);
+  height: var(--control-waiting-flip);
   color: var(--color-white);
-  animation: status-in 180ms ease;
+  z-index: var(--glass-z);
 }
 
-.status-pill.is-leaving {
-  animation: status-out 180ms ease forwards;
+/* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
+.waiting-flip-btn[data-visible="false"] {
+  display: none;
 }
 
-.status-pill__icon {
-  flex-shrink: 0;
-  color: var(--color-status-cyan);
+.liquid-glass-debug {
+  position: absolute;
+  top: calc(var(--safe-top) + 8px);
+  right: calc(var(--safe-right) + 8px);
+  z-index: 80;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.35;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
 }
 
-.status-pill__copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+.tap-catcher {
+  position: absolute;
+  inset: 0;
+  z-index: var(--tap-z);
+  background: transparent;
+  border: 0;
 }
 
-.status-pill__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.status-pill__subtitle {
-  font-size: 13px;
-  opacity: 0.8;
-}
-
-@keyframes status-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-@keyframes status-out {
-  from {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
-  }
-}
-
-.prejoin,
+.camera-activation,
 .ended,
 .error-screen {
   position: absolute;
@@ -390,16 +514,7 @@
   z-index: 40;
 }
 
-.prejoin__avatar,
-.ended__icon {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  object-fit: cover;
-  background: #2c2c2e;
-}
-
-.prejoin__title,
+.camera-activation__title,
 .ended__title,
 .error-screen__title {
   font-size: 28px;
@@ -407,12 +522,20 @@
   margin: 8px 0 0;
 }
 
-.prejoin__subtitle,
+.camera-activation__body,
 .ended__duration,
 .error-screen__body {
   font-size: 17px;
   opacity: 0.72;
   margin: 0;
+}
+
+.ended__icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2c2c2e;
 }
 
 .btn-row {
@@ -429,16 +552,10 @@
   font-size: 17px;
   font-weight: 600;
   padding: 14px 20px;
-  transform: scale(1);
-  transition:
-    transform 140ms ease,
-    filter 140ms ease,
-    opacity 140ms ease;
 }
 
 .btn:active {
   transform: scale(0.92);
-  filter: brightness(1.12);
 }
 
 .btn--primary {
@@ -451,219 +568,45 @@
   color: var(--color-white);
 }
 
-.connecting-banner {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  z-index: 15;
-  pointer-events: none;
-}
-
-.connecting-banner__chip {
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  font-weight: 600;
-}
-
-.sheet-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: var(--sheet-z);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.sheet {
-  width: min(480px, 100%);
-  background: rgba(28, 28, 30, 0.96);
-  border-radius: 24px 24px 0 0;
-  padding:
-    10px
-    calc(var(--safe-right) + 16px)
-    calc(var(--safe-bottom) + 16px)
-    calc(var(--safe-left) + 16px);
-  color: var(--color-white);
-}
-
-.sheet__handle {
-  width: 40px;
-  height: 5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.35);
-  margin: 4px auto 16px;
-}
-
-.sheet__action {
-  width: 100%;
-  min-height: 52px;
-  border-radius: 14px;
-  padding: 14px 16px;
-  text-align: left;
-  font-size: 17px;
-  background: rgba(255, 255, 255, 0.08);
-  margin-bottom: 8px;
-}
-
-.sheet__action--cancel {
-  text-align: center;
-  margin-top: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  font-weight: 600;
-}
-
-.effects-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(var(--safe-bottom) + 24px);
-  display: flex;
-  justify-content: center;
-  z-index: 35;
-  pointer-events: none;
-}
-
-.effects-row {
-  display: flex;
-  gap: 18px;
-  padding: 0 18px;
-  max-width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  pointer-events: auto;
-}
-
-.effect-control {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  min-width: 72px;
-  color: var(--color-white);
-}
-
-.effect-control__btn {
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.16);
-  border: 2px solid transparent;
-  color: var(--color-white);
-}
-
-.effect-control.is-selected .effect-control__btn {
-  border-color: var(--color-white);
-  background: rgba(255, 255, 255, 0.28);
-}
-
-.effect-control__label {
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.effects-close {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--color-white);
-  z-index: 5;
-}
-
-.reaction-burst {
-  position: absolute;
-  left: 50%;
-  top: 42%;
-  transform: translate(-50%, -50%);
-  font-size: 64px;
-  z-index: 40;
-  pointer-events: none;
-  animation: reaction-pop 1.5s ease forwards;
-}
-
-.reaction-picker {
-  position: absolute;
-  bottom: calc(var(--safe-bottom) + 120px);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  z-index: 36;
-}
-
-.reaction-picker button {
-  width: 48px;
-  height: 48px;
-  font-size: 28px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-@keyframes reaction-pop {
-  0% {
+@keyframes chrome-in {
+  from {
     opacity: 0;
-    transform: translate(-50%, -40%) scale(0.6);
+    transform: scale(0.92);
   }
-  20% {
+  to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1.1);
-  }
-  70% {
-    opacity: 1;
-    transform: translate(-50%, -60%) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -80%) scale(0.9);
+    transform: scale(1);
   }
 }
 
-.perf-hud {
-  position: absolute;
-  left: calc(var(--safe-left) + 8px);
-  bottom: calc(var(--safe-bottom) + 8px);
-  z-index: 80;
-  font-size: 11px;
-  line-height: 1.35;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #9ff;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  white-space: pre;
+@keyframes symbol-swap {
+  from {
+    opacity: 0.4;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-.tap-catcher {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  background: transparent;
-  border: 0;
+@media (prefers-reduced-motion: reduce) {
+  .local-camera-surface,
+  .facetime-chrome,
+  .remote-video-surface,
+  .liquid-canvas-layer,
+  .control-btn .symbol-icon {
+    transition-duration: 120ms !important;
+    animation-duration: 120ms !important;
+  }
 }
 
 @media (orientation: landscape) {
-  .self-view {
-    width: clamp(80px, 18vw, 104px);
+  .local-camera-surface[data-mode="expanded"] {
+    width: clamp(96px, 18vw, 118px);
   }
 
   .control-rail {
     bottom: calc(var(--safe-bottom) + 16px);
-  }
-
-  .call-screen.is-effects .remote-video-wrap {
-    max-height: 78dvh;
   }
 }

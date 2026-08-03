@@ -1,44 +1,64 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  AUTO_HIDE_MS,
   callReducer,
   canTransition,
   formatDuration,
   getInitials,
+  isActiveCallPhase,
   parseCallSearchParams,
 } from "../../lib/callState";
-import { selectPerformancePolicy } from "../../lib/performance";
-import { AUTO_HIDE_MS, STATUS_PILL_MS } from "../../lib/callState";
+import { objectCoverSourceRect } from "../../lib/objectCover";
 
 describe("call state transitions", () => {
   it("moves through the happy path", () => {
-    let status = callReducer("prejoin", { type: "START" });
-    expect(status).toBe("requesting-permissions");
-    status = callReducer(status, { type: "PERMISSIONS_GRANTED" });
-    expect(status).toBe("connecting");
-    status = callReducer(status, { type: "CONNECTED" });
-    expect(status).toBe("live");
-    status = callReducer(status, { type: "OPEN_EFFECTS" });
-    expect(status).toBe("effects");
-    status = callReducer(status, { type: "CLOSE_EFFECTS" });
-    expect(status).toBe("live");
-    status = callReducer(status, { type: "END" });
-    expect(status).toBe("ended");
+    let phase = callReducer("bootstrapping", { type: "BOOTSTRAP" });
+    phase = callReducer(phase, { type: "PERMISSIONS_GRANTED" });
+    expect(phase).toBe("ringing");
+    phase = callReducer(phase, { type: "PHO_ANSWERED" });
+    expect(phase).toBe("connecting");
+    phase = callReducer(phase, { type: "REMOTE_FRAME" });
+    expect(phase).toBe("joining");
+    phase = callReducer(phase, { type: "JOIN_COMPLETE" });
+    expect(phase).toBe("live");
+  });
+
+  it("ignores REMOTE_FRAME during ringing", () => {
+    expect(callReducer("ringing", { type: "REMOTE_FRAME" })).toBe("ringing");
+  });
+
+  it("ignores PHO_ANSWERED after ringing", () => {
+    expect(callReducer("connecting", { type: "PHO_ANSWERED" })).toBe(
+      "connecting",
+    );
+    expect(callReducer("joining", { type: "PHO_ANSWERED" })).toBe("joining");
+    expect(callReducer("live", { type: "PHO_ANSWERED" })).toBe("live");
+  });
+
+  it("allows ending from ringing", () => {
+    expect(callReducer("ringing", { type: "END" })).toBe("ended");
+    expect(canTransition("ringing", "ended")).toBe(true);
   });
 
   it("handles permission denial", () => {
-    const status = callReducer("requesting-permissions", {
+    const phase = callReducer("bootstrapping", {
       type: "PERMISSIONS_DENIED",
     });
-    expect(status).toBe("permission-error");
-    expect(canTransition("permission-error", "requesting-permissions")).toBe(
-      true,
-    );
+    expect(phase).toBe("permission-error");
+    expect(canTransition("permission-error", "bootstrapping")).toBe(true);
   });
 
-  it("restarts from ended", () => {
-    expect(callReducer("ended", { type: "START" })).toBe(
-      "requesting-permissions",
-    );
+  it("marks ringing through live as active", () => {
+    expect(isActiveCallPhase("ringing")).toBe(true);
+    expect(isActiveCallPhase("connecting")).toBe(true);
+    expect(isActiveCallPhase("joining")).toBe(true);
+    expect(isActiveCallPhase("live")).toBe(true);
+    expect(isActiveCallPhase("ended")).toBe(false);
+  });
+
+  it("keeps overlays separate from network phases", () => {
+    expect(canTransition("live", "joining")).toBe(false);
+    expect(callReducer("live", { type: "JOIN_COMPLETE" })).toBe("live");
   });
 });
 
@@ -59,52 +79,62 @@ describe("query parameter parsing", () => {
     expect(
       parseCallSearchParams(
         "abc",
-        "name=Nova&avatar=/a.jpg&remoteVideo=/v.mp4",
+        "name=Nova&avatar=/a.jpg&remoteVideo=/v.mp4&selfAvatar=/me.jpg",
       ),
     ).toEqual({
       sessionId: "abc",
       participantName: "Nova",
       participantAvatar: "/a.jpg",
       remoteVideo: "/v.mp4",
+      selfAvatar: "/me.jpg",
     });
   });
 
+  it("falls back invalid session IDs to demo", () => {
+    expect(parseCallSearchParams("../evil", "").sessionId).toBe("demo");
+    expect(parseCallSearchParams("has spaces", "").sessionId).toBe("demo");
+  });
+
+  it("trims and caps names at 80 characters", () => {
+    const long = `  ${"A".repeat(100)}  `;
+    expect(parseCallSearchParams("demo", `name=${encodeURIComponent(long)}`).participantName).toHaveLength(
+      80,
+    );
+  });
+
+  it("rejects cross-origin avatar and remote video values", () => {
+    const config = parseCallSearchParams(
+      "demo",
+      "avatar=https://evil.example/a.jpg&remoteVideo=https://evil.example/v.mp4",
+    );
+    expect(config.participantAvatar).toBe("/avatars/pho.jpg");
+    expect(config.remoteVideo).toBe("/videos/mock-agent.mp4");
+  });
+
   it("builds initials", () => {
-    expect(getInitials("Pho")).toBe("PH");
+    expect(getInitials("Pho")).toBe("P");
     expect(getInitials("Ada Lovelace")).toBe("AL");
   });
 });
 
-describe("performance fallback selection", () => {
-  it("stays full when fps is healthy", () => {
-    expect(selectPerformancePolicy(58, 0, "full").mode).toBe("full");
-  });
-
-  it("reduces then falls back under sustained low fps", () => {
-    expect(selectPerformancePolicy(40, 3000, "full").mode).toBe("reduced");
-    expect(selectPerformancePolicy(40, 3000, "reduced").mode).toBe("fallback");
-    expect(selectPerformancePolicy(60, 0, "full", true).useCssFallback).toBe(
-      true,
-    );
+describe("auto-hide timeout", () => {
+  it("uses the product timeout constant", () => {
+    expect(AUTO_HIDE_MS).toBe(2000);
   });
 });
 
-describe("auto-hide and status timeouts", () => {
-  it("uses the product timeout constants", () => {
-    expect(AUTO_HIDE_MS).toBe(3000);
-    expect(STATUS_PILL_MS).toBe(2200);
+describe("object-cover math", () => {
+  it("crops wider sources horizontally", () => {
+    const rect = objectCoverSourceRect(1920, 1080, 400, 800);
+    expect(rect.height).toBe(1080);
+    expect(rect.width).toBeCloseTo(540);
+    expect(rect.x).toBeCloseTo(690);
   });
 
-  it("clears status after timeout", async () => {
-    vi.useFakeTimers();
-    let message: string | null = "microphone-muted";
-    const id = setTimeout(() => {
-      message = null;
-    }, STATUS_PILL_MS);
-    expect(message).toBe("microphone-muted");
-    await vi.advanceTimersByTimeAsync(STATUS_PILL_MS);
-    expect(message).toBeNull();
-    clearTimeout(id);
-    vi.useRealTimers();
+  it("crops taller sources vertically", () => {
+    const rect = objectCoverSourceRect(800, 1200, 400, 300);
+    expect(rect.width).toBe(800);
+    expect(rect.height).toBeCloseTo(600);
+    expect(rect.y).toBeCloseTo(300);
   });
 });

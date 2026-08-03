@@ -1,0 +1,107 @@
+import {
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type PointerEvent,
+  type RefObject,
+} from "react";
+import { getInitials } from "../lib/callState";
+import { useLayoutMorph } from "../hooks/useLayoutMorph";
+
+export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
+
+interface LocalCameraSurfaceProps {
+  stream: MediaStream | null;
+  videoEnabled: boolean;
+  mirrored: boolean;
+  mode: LocalCameraMode;
+  selfName: string;
+  selfAvatar?: string;
+  style?: CSSProperties;
+  nodeRef: RefObject<HTMLDivElement | null>;
+  videoRef?: RefObject<HTMLVideoElement | null>;
+  onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerMove?: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerUp?: (event: PointerEvent<HTMLDivElement>) => void;
+  draggable?: boolean;
+}
+
+export function LocalCameraSurface({
+  stream,
+  videoEnabled,
+  mirrored,
+  mode,
+  selfName,
+  selfAvatar,
+  style,
+  nodeRef,
+  videoRef,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  draggable = false,
+}: LocalCameraSurfaceProps) {
+  const innerVideoRef = useRef<HTMLVideoElement | null>(null);
+  useLayoutMorph(nodeRef, mode);
+
+  useEffect(() => {
+    const element = innerVideoRef.current;
+    if (!element) return;
+
+    element.srcObject = stream;
+    if (stream) void element.play().catch(() => undefined);
+
+    return () => {
+      if (element.srcObject === stream) {
+        element.pause();
+        element.srcObject = null;
+      }
+    };
+  }, [stream]);
+
+  const setVideoNode = (el: HTMLVideoElement | null) => {
+    innerVideoRef.current = el;
+    if (videoRef) {
+      videoRef.current = el;
+    }
+  };
+
+  return (
+    <div
+      ref={nodeRef}
+      className={`local-camera-surface ${mirrored ? "is-mirrored" : ""}`}
+      data-mode={mode}
+      data-camera={videoEnabled ? "on" : "off"}
+      style={style}
+      onPointerDown={draggable ? onPointerDown : undefined}
+      onPointerMove={draggable ? onPointerMove : undefined}
+      onPointerUp={draggable ? onPointerUp : undefined}
+      onPointerCancel={draggable ? onPointerUp : undefined}
+      role="group"
+      aria-label="Self view"
+      data-testid="local-camera-surface"
+    >
+      <video
+        ref={setVideoNode}
+        className="local-camera-surface__video"
+        autoPlay
+        playsInline
+        muted
+        data-testid="local-video"
+        // When camera is off, ignore this node in LiquidGL live blits so the
+        // last frame is not frozen into the glass after the placeholder shows.
+        data-liquid-ignore={videoEnabled ? undefined : ""}
+      />
+
+      <div className="local-camera-surface__placeholder" aria-hidden={videoEnabled}>
+        <div className="local-camera-surface__avatar">
+          {selfAvatar ? (
+            <img src={selfAvatar} alt="" />
+          ) : (
+            <span>{getInitials(selfName)}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

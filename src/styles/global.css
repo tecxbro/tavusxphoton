@@ -39,6 +39,11 @@ video {
   max-width: 100%;
 }
 
+/* Author display rules must not defeat the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 :focus-visible {
   outline: 3px solid var(--color-status-cyan);
   outline-offset: 2px;

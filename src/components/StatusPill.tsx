@@ -1,6 +1,6 @@
 import { Camera, CameraOff, Mic, MicOff, RotateCcw } from "lucide-react";
 import type { StatusMessage } from "../lib/callState";
-import { hapticTap } from "../lib/liquidGlass";
+import { hapticTap } from "../lib/haptics";
 
 interface StatusPillProps {
   message: StatusMessage;

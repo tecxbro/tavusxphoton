@@ -1,11 +1,4 @@
-import {
-  Camera,
-  CameraOff,
-  Mic,
-  MicOff,
-  MoreHorizontal,
-  X,
-} from "lucide-react";
+import { SymbolIcon } from "./SymbolIcon";
 import { CallControlButton } from "./CallControlButton";
 
 interface CallControlRailProps {
@@ -13,7 +6,6 @@ interface CallControlRailProps {
   audioEnabled: boolean;
   onToggleCamera: () => void;
   onToggleMic: () => void;
-  onMore: () => void;
   onEnd: () => void;
 }
 
@@ -22,9 +14,11 @@ export function CallControlRail({
   audioEnabled,
   onToggleCamera,
   onToggleMic,
-  onMore,
   onEnd,
 }: CallControlRailProps) {
+  const cameraSymbol = videoEnabled ? "camera-on" : "camera-off";
+  const micSymbol = audioEnabled ? "microphone-on" : "microphone-off";
+
   return (
     <div className="control-rail" role="toolbar" aria-label="Call controls">
       <CallControlButton
@@ -32,9 +26,11 @@ export function CallControlRail({
         ariaLabel={videoEnabled ? "Turn off camera" : "Turn on camera"}
         title={videoEnabled ? "Turn off camera" : "Turn on camera"}
         pressed={!videoEnabled}
+        active={videoEnabled}
         onClick={onToggleCamera}
+        testId="toggle-camera"
       >
-        {videoEnabled ? <Camera size={26} /> : <CameraOff size={26} />}
+        <SymbolIcon key={cameraSymbol} name={cameraSymbol} />
       </CallControlButton>
 
       <CallControlButton
@@ -42,18 +38,22 @@ export function CallControlRail({
         ariaLabel={audioEnabled ? "Mute microphone" : "Unmute microphone"}
         title={audioEnabled ? "Mute microphone" : "Unmute microphone"}
         pressed={!audioEnabled}
+        active={audioEnabled}
         onClick={onToggleMic}
+        testId="toggle-mic"
       >
-        {audioEnabled ? <Mic size={26} /> : <MicOff size={26} />}
+        <SymbolIcon key={micSymbol} name={micSymbol} />
       </CallControlButton>
 
       <CallControlButton
         variant="more"
         ariaLabel="More options"
-        title="More"
-        onClick={onMore}
+        title="More options"
+        onClick={() => undefined}
+        testId="more-button"
+        disabled
       >
-        <MoreHorizontal size={26} />
+        <SymbolIcon name="more" />
       </CallControlButton>
 
       <CallControlButton
@@ -61,8 +61,9 @@ export function CallControlRail({
         ariaLabel="End call"
         title="End call"
         onClick={onEnd}
+        testId="end-call"
       >
-        <X size={32} strokeWidth={2.5} />
+        <SymbolIcon name="end-call" />
       </CallControlButton>
     </div>
   );

@@ -6,530 +6,560 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent,
 } from "react";
-import { Sparkles, SwitchCamera } from "lucide-react";
 import { CallControlRail } from "./CallControlRail";
-import { ConnectingScreen } from "./ConnectingScreen";
+import { CameraActivationFallback } from "./CameraActivationFallback";
 import { ContactPill } from "./ContactPill";
-import { EffectsPanel } from "./EffectsPanel";
+import { EffectsButton } from "./EffectsButton";
 import { EndedScreen } from "./EndedScreen";
-import { MoreSheet } from "./MoreSheet";
-import { ParticipantSheet } from "./ParticipantSheet";
-import { PrejoinScreen } from "./PrejoinScreen";
-import { SelfView } from "./SelfView";
-import { StatusPill } from "./StatusPill";
+import {
+  LocalCameraSurface,
+  type LocalCameraMode,
+} from "./LocalCameraSurface";
+import { SymbolIcon } from "./SymbolIcon";
 import { useAutoHideControls } from "../hooks/useAutoHideControls";
 import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
+import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
+import { useLiquidGlass } from "../hooks/useLiquidGlass";
 import { useMediaDevices } from "../hooks/useMediaDevices";
+import { usePhoTestCommands } from "../hooks/usePhoTestCommands";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import {
-  CONNECTING_MIN_MS,
-  REACTION_MS,
-  STATUS_PILL_MS,
+  JOIN_MORPH_MS,
   callReducer,
+  isActiveCallPhase,
   type CallConfig,
-  type EffectMode,
-  type StatusMessage,
+  type CallPhase,
 } from "../lib/callState";
-import {
-  hapticTap,
-  initLiquidGlass,
-  type GlassController,
-} from "../lib/liquidGlass";
-import {
-  createFpsTracker,
-  selectPerformancePolicy,
-  type PerformanceMode,
-  type PerformanceSample,
-} from "../lib/performance";
+import { hapticTap } from "../lib/haptics";
 
 interface CallScreenProps {
   config: CallConfig;
 }
 
-function PerformanceHud({ sample }: { sample: PerformanceSample | null }) {
-  if (!import.meta.env.DEV || !sample) return null;
-  return (
-    <div className="perf-hud" data-testid="perf-hud">
-      {`FPS ${sample.fps}  avg ${sample.averageFps}
-drop ~${sample.droppedFrames}
-glass ${sample.liquidEnabled ? sample.mode : "fallback"}
-${Math.round(sample.viewportWidth)}×${Math.round(sample.viewportHeight)} @${sample.devicePixelRatio}`}
-    </div>
-  );
+function localModeFor(
+  phase: CallPhase,
+  chromeVisible: boolean,
+): LocalCameraMode {
+  if (phase === "ringing" || phase === "connecting") return "fullscreen";
+  if (phase === "joining") return "expanded";
+  if (phase === "live") return chromeVisible ? "expanded" : "compact";
+  return "fullscreen";
+}
+
+function wantsDebugGlass(): boolean {
+  if (typeof window === "undefined") return false;
+  if (!import.meta.env.DEV) return false;
+
+  return new URLSearchParams(window.location.search).has("debugGlass");
 }
 
 export function CallScreen({ config }: CallScreenProps) {
-  const [status, dispatch] = useReducer(callReducer, "prejoin");
-  const [effect, setEffect] = useState<EffectMode>("none");
-  const [showReactions, setShowReactions] = useState(false);
-  const [reaction, setReaction] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<StatusMessage>(null);
-  const [statusLeaving, setStatusLeaving] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [participantOpen, setParticipantOpen] = useState(false);
-  const [remoteReady, setRemoteReady] = useState(false);
-  const [perfSample, setPerfSample] = useState<PerformanceSample | null>(null);
-  const [perfMode, setPerfMode] = useState<PerformanceMode>("full");
+  const [phase, dispatch] = useReducer(callReducer, "bootstrapping");
+  const [needsGesture, setNeedsGesture] = useState(false);
+  const [backgroundReady, setBackgroundReady] = useState(false);
+  const [showGlassDebug, setShowGlassDebug] = useState(false);
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
-  const remoteBgRef = useRef<HTMLVideoElement | null>(null);
-  const glassRef = useRef<GlassController | null>(null);
-  const connectStarted = useRef<number | null>(null);
-  const statusTimers = useRef<number[]>([]);
-  const media = useMediaDevices();
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  // Mirror of reducer phase for async media / Pho handlers that must not
+  // close over a stale render. Always update alongside dispatch.
+  const phaseRef = useRef<CallPhase>(phase);
+  const transitionTimers = useRef<number[]>([]);
+  // Strict Mode remounts effects once; gate the initial beginCall so we do
+  // not request media twice on first paint.
+  const bootstrapped = useRef(false);
+  // Bumped on every beginCall / end so late media and timers ignore prior work.
+  const attemptRef = useRef(0);
+
+  phaseRef.current = phase;
+
+  const {
+    stream,
+    videoEnabled,
+    audioEnabled,
+    facingMode,
+    error: mediaError,
+    requestPermissions,
+    toggleVideo,
+    toggleAudio,
+    flipCamera: flipMediaCamera,
+    stopAll,
+  } = useMediaDevices();
+
   const viewport = useSafeViewport();
+  const {
+    formatted: timerFormatted,
+    reset: resetTimer,
+    stop: stopTimer,
+  } = useCallTimer(phase === "live");
 
-  const timerActive = status === "live" || status === "effects";
-  const timer = useCallTimer(timerActive);
-
-  const overlayOpen =
-    moreOpen ||
-    participantOpen ||
-    Boolean(statusMessage) ||
-    status === "effects";
-
-  const autoHide = useAutoHideControls(
-    status === "live",
-    overlayOpen || status === "permission-error",
+  const {
+    visible: controlsVisible,
+    bump: bumpControls,
+    pause: pauseControls,
+    resume: resumeControls,
+    show: showControls,
+  } = useAutoHideControls(
+    phase === "live",
+    phase === "permission-error" || phase === "connection-error",
   );
 
-  const drag = useDraggableSelfView(
-    screenRef,
-    status === "live" || status === "connecting",
-  );
+  const dragEnabled = phase === "live" && controlsVisible;
+  const {
+    nodeRef: dragNodeRef,
+    position: dragPosition,
+    dragging,
+    onPointerDown: onDragPointerDown,
+    onPointerMove: onDragPointerMove,
+    onPointerUp: onDragPointerUp,
+  } = useDraggableSelfView(screenRef, dragEnabled, {
+    compact: !controlsVisible,
+  });
 
-  const showStatus = useCallback((message: StatusMessage) => {
-    statusTimers.current.forEach((id) => window.clearTimeout(id));
-    statusTimers.current = [];
-    setStatusLeaving(false);
-    setStatusMessage(message);
-    if (!message) return;
-    const leave = window.setTimeout(
-      () => setStatusLeaving(true),
-      STATUS_PILL_MS - 180,
-    );
-    const clear = window.setTimeout(() => {
-      setStatusMessage(null);
-      setStatusLeaving(false);
-    }, STATUS_PILL_MS);
-    statusTimers.current = [leave, clear];
+  const clearTransitionTimers = useCallback(() => {
+    transitionTimers.current.forEach((id) => window.clearTimeout(id));
+    transitionTimers.current = [];
   }, []);
 
-  const destroyGlass = useCallback(() => {
-    glassRef.current?.destroy();
-    glassRef.current = null;
+  const clearRemoteVideo = useCallback(() => {
+    const remote = remoteRef.current;
+    if (!remote) return;
+    remote.pause();
+    remote.removeAttribute("src");
+    remote.removeAttribute("data-revealed");
+    remote.load();
   }, []);
 
-  const ensureGlass = useCallback(() => {
-    if (document.visibilityState === "hidden") return;
-    destroyGlass();
-    glassRef.current = initLiquidGlass(perfMode);
-    setPerfMode(glassRef.current.mode);
-  }, [destroyGlass, perfMode]);
+  useEffect(() => {
+    if (dragging) pauseControls();
+    else if (phase === "live") resumeControls();
+  }, [dragging, pauseControls, phase, resumeControls]);
 
   useEffect(() => {
     return () => {
-      destroyGlass();
-      statusTimers.current.forEach((id) => window.clearTimeout(id));
+      clearTransitionTimers();
     };
-  }, [destroyGlass]);
+  }, [clearTransitionTimers]);
 
   useEffect(() => {
-    if (status !== "live" && status !== "effects") {
-      destroyGlass();
-      return;
+    setShowGlassDebug(wantsDebugGlass());
+  }, []);
+
+  const beginCall = useCallback(async () => {
+    clearTransitionTimers();
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
+
+    clearRemoteVideo();
+    setNeedsGesture(false);
+    setBackgroundReady(false);
+
+    const prior = phaseRef.current;
+    if (isActiveCallPhase(prior) || prior === "ended") {
+      stopAll();
+      stopTimer();
     }
-    if (!remoteReady) return;
-    const id = window.setTimeout(() => ensureGlass(), 50);
-    return () => window.clearTimeout(id);
-  }, [destroyGlass, ensureGlass, remoteReady, status]);
 
-  useEffect(() => {
-    const onResize = () => {
-      glassRef.current?.refresh();
-      if (status === "live" || status === "effects") {
-        ensureGlass();
+    // Always restart explicitly — do not transit through ended during reset.
+    dispatch({ type: "RESTART" });
+    phaseRef.current = "bootstrapping";
+
+    const nextStream = await requestPermissions();
+    if (attempt !== attemptRef.current) return;
+
+    if (!nextStream) {
+      const message = mediaError ?? "";
+      if (!/NotAllowedError|Permission denied|Permission/i.test(message)) {
+        setNeedsGesture(true);
       }
-    };
-    window.addEventListener("orientationchange", onResize);
-    window.visualViewport?.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("orientationchange", onResize);
-      window.visualViewport?.removeEventListener("resize", onResize);
-    };
-  }, [ensureGlass, status]);
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    if (status !== "live" && status !== "effects") return;
-    const tracker = createFpsTracker();
-    let raf = 0;
-    const loop = () => {
-      const stats = tracker.tick();
-      const policy = selectPerformancePolicy(
-        stats.averageFps,
-        stats.lowFpsDurationMs,
-        perfMode,
-        window.__miniPhoForceGlassFallback__ === true,
-      );
-      if (policy.mode !== perfMode) {
-        setPerfMode(policy.mode);
-        glassRef.current?.setMode(policy.mode);
-      }
-      setPerfSample({
-        fps: stats.fps,
-        averageFps: stats.averageFps,
-        droppedFrames: stats.droppedFrames,
-        mode: policy.mode,
-        viewportWidth: viewport.width,
-        viewportHeight: viewport.height,
-        devicePixelRatio: window.devicePixelRatio || 1,
-        liquidEnabled: !policy.useCssFallback,
-      });
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [perfMode, status, viewport.height, viewport.width]);
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "hidden") {
-        destroyGlass();
-      } else if (status === "live" || status === "effects") {
-        ensureGlass();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [destroyGlass, ensureGlass, status]);
-
-  const beginConnecting = useCallback(async () => {
-    dispatch({ type: "START" });
-    const stream = await media.requestPermissions();
-    if (!stream) {
       dispatch({ type: "PERMISSIONS_DENIED" });
+      phaseRef.current = "permission-error";
       return;
     }
+
+    resetTimer();
     dispatch({ type: "PERMISSIONS_GRANTED" });
-    connectStarted.current = performance.now();
-    timer.reset();
-
-    const video = remoteRef.current;
-    const alreadyReady =
-      Boolean(video) &&
-      video!.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-    setRemoteReady(alreadyReady);
-    if (alreadyReady) {
-      void video?.play().catch(() => undefined);
-      void remoteBgRef.current?.play().catch(() => undefined);
-    }
-  }, [media, timer]);
-
-  useEffect(() => {
-    if (
-      status !== "connecting" ||
-      !remoteReady ||
-      connectStarted.current == null
-    ) {
-      return;
-    }
-    const elapsed = performance.now() - connectStarted.current;
-    const wait = Math.max(0, CONNECTING_MIN_MS - elapsed);
-    const id = window.setTimeout(() => {
-      dispatch({ type: "CONNECTED" });
-      showStatus("connection-restored");
-    }, wait);
-    return () => window.clearTimeout(id);
-  }, [remoteReady, showStatus, status]);
+    phaseRef.current = "ringing";
+  }, [
+    clearRemoteVideo,
+    clearTransitionTimers,
+    mediaError,
+    requestPermissions,
+    resetTimer,
+    stopAll,
+    stopTimer,
+  ]);
 
   const endCall = useCallback(() => {
-    media.stopAll();
-    remoteRef.current?.pause();
-    remoteBgRef.current?.pause();
-    timer.stop();
-    destroyGlass();
-    setMoreOpen(false);
-    setParticipantOpen(false);
-    setShowReactions(false);
-    setEffect("none");
+    clearTransitionTimers();
+    stopAll();
+    clearRemoteVideo();
+    stopTimer();
     dispatch({ type: "END" });
-  }, [destroyGlass, media, timer]);
+    phaseRef.current = "ended";
+  }, [clearRemoteVideo, clearTransitionTimers, stopAll, stopTimer]);
 
-  const onRemoteReady = useCallback(() => {
-    setRemoteReady(true);
-    void remoteRef.current?.play().catch(() => {
+  useEffect(() => {
+    if (bootstrapped.current) return;
+    bootstrapped.current = true;
+    void beginCall();
+  }, [beginCall]);
+
+  usePhoTestCommands(config.sessionId, {
+    onAnswer: () => {
+      if (phaseRef.current === "ringing") {
+        dispatch({ type: "PHO_ANSWERED" });
+        phaseRef.current = "connecting";
+      }
+    },
+    onEnd: () => {
+      endCall();
+    },
+    onReset: () => {
+      void beginCall();
+    },
+    getPhase: () => phaseRef.current,
+  });
+
+  const showRemote =
+    phase === "connecting" || phase === "joining" || phase === "live";
+
+  useEffect(() => {
+    const remote = remoteRef.current;
+    if (!remote) return;
+    const attempt = attemptRef.current;
+
+    if (!showRemote) {
+      if (remote.getAttribute("src")) {
+        clearRemoteVideo();
+      }
+      return;
+    }
+
+    if (remote.getAttribute("src") !== config.remoteVideo) {
+      remote.setAttribute("src", config.remoteVideo);
+      remote.load();
+      void remote.play().catch(() => undefined);
+    }
+
+    const onError = () => {
+      if (attempt !== attemptRef.current) return;
       dispatch({ type: "CONNECTION_FAILED" });
+      phaseRef.current = "connection-error";
+    };
+    remote.addEventListener("error", onError);
+    return () => {
+      remote.removeEventListener("error", onError);
+    };
+  }, [clearRemoteVideo, config.remoteVideo, showRemote]);
+
+  useFirstVideoFrame(remoteRef, phase === "connecting", () => {
+    if (phaseRef.current !== "connecting") return;
+    dispatch({ type: "REMOTE_FRAME" });
+    phaseRef.current = "joining";
+  });
+
+  useEffect(() => {
+    if (phase !== "joining") return;
+    const attempt = attemptRef.current;
+    clearTransitionTimers();
+    const id = window.setTimeout(() => {
+      if (attempt !== attemptRef.current) return;
+      dispatch({ type: "JOIN_COMPLETE" });
+      phaseRef.current = "live";
+    }, JOIN_MORPH_MS);
+    transitionTimers.current.push(id);
+    return () => {
+      window.clearTimeout(id);
+      transitionTimers.current = transitionTimers.current.filter(
+        (timerId) => timerId !== id,
+      );
+    };
+  }, [clearTransitionTimers, phase]);
+
+  // LiquidGL initializes only after real visual content exists: either the
+  // first presented camera frame (requestVideoFrameCallback with fallback),
+  // or a painted camera-off placeholder (double rAF after commit).
+  const showLocal = isActiveCallPhase(phase);
+
+  useEffect(() => {
+    if (!showLocal) {
+      setBackgroundReady(false);
+    }
+  }, [showLocal]);
+
+  useFirstVideoFrame(
+    localVideoRef,
+    showLocal && videoEnabled && !backgroundReady,
+    () => setBackgroundReady(true),
+  );
+
+  useEffect(() => {
+    if (!showLocal || videoEnabled || backgroundReady) return;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => setBackgroundReady(true));
     });
-    void remoteBgRef.current?.play().catch(() => undefined);
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second) window.cancelAnimationFrame(second);
+    };
+  }, [showLocal, videoEnabled, backgroundReady]);
+
+  const flipCamera = useCallback(() => {
+    hapticTap();
+    bumpControls();
+    void flipMediaCamera();
+  }, [bumpControls, flipMediaCamera]);
+
+  const onSelfPointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      bumpControls();
+      onDragPointerDown(event);
+    },
+    [bumpControls, onDragPointerDown],
+  );
+
+  const mode = localModeFor(phase, controlsVisible);
+  const showChrome =
+    isActiveCallPhase(phase) && (phase !== "live" || controlsVisible);
+  const showWaitingFlip = phase === "ringing" || phase === "connecting";
+  const showLiveExtras = phase === "joining" || phase === "live";
+
+  // The flip capsule lives in the chrome layer (above the LiquidGL canvas)
+  // and tracks the self-view rect. It hides during drags and morphs, then
+  // reappears at the settled position.
+  const [selfRect, setSelfRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (mode === "fullscreen" || dragging) {
+      setSelfRect(null);
+      return;
+    }
+    const node = dragNodeRef.current;
+    if (!node) {
+      setSelfRect(null);
+      return;
+    }
+    setSelfRect(node.getBoundingClientRect());
+  }, [mode, dragging, dragPosition, phase, controlsVisible, viewport, videoEnabled, dragNodeRef]);
+
+  const capsuleVisible =
+    showLiveExtras &&
+    controlsVisible &&
+    mode === "expanded" &&
+    videoEnabled &&
+    !dragging &&
+    selfRect !== null;
+
+  const capsuleStyle = useMemo(() => {
+    if (!selfRect) return undefined;
+    return {
+      top: selfRect.bottom - 48,
+      left: selfRect.left + selfRect.width / 2 - 44,
+    } as CSSProperties;
+  }, [selfRect]);
+
+  const { mode: liquidMode } = useLiquidGlass({
+    enabled: showLocal,
+    backgroundReady: backgroundReady && showLocal,
+    phase,
+    controlsVisible: showChrome,
+    layoutMode: mode,
+    videoEnabled,
+  });
 
   const selfStyle = useMemo(() => {
-    if (!drag.position) return undefined;
+    if (mode === "fullscreen" || !dragPosition) return undefined;
     return {
-      top: drag.position.top,
-      left: drag.position.left,
+      top: dragPosition.top,
+      left: dragPosition.left,
       right: "auto",
     } as CSSProperties;
-  }, [drag.position]);
+  }, [dragPosition, mode]);
 
-  const effectClass =
-    effect === "portrait"
-      ? "effect-portrait"
-      : effect === "studio"
-        ? "effect-studio"
-        : "";
+  const chromeVisibleAttr =
+    phase === "live" ? (controlsVisible ? "visible" : "hidden") : "visible";
 
-  const showStage =
-    status === "connecting" ||
-    status === "live" ||
-    status === "effects" ||
-    status === "requesting-permissions";
-
-  const showSelf =
-    status === "connecting" || status === "live";
-
-  const showLiveChrome = status === "live";
+  const debug = showGlassDebug
+    ? window.__miniPhoLiquidGlassDebug__
+    : null;
 
   return (
     <main
       ref={screenRef}
-      className={`call-screen ${status === "effects" ? "is-effects" : ""} ${effectClass}`}
+      className="call-screen"
       data-testid="call-screen"
-      data-status={status}
+      data-phase={phase}
+      data-chrome={chromeVisibleAttr}
+      data-camera={videoEnabled ? "on" : "off"}
+      data-liquid-mode={liquidMode}
     >
-      {showStage && (
+      <div id="liquid-gl-snapshot" className="call-visual-stage">
         <div id="video-stage">
           <div className="remote-video-wrap">
             <video
-              ref={remoteBgRef}
-              className="remote-video-bg"
-              src={config.remoteVideo}
-              autoPlay
-              playsInline
-              loop
-              muted
-              aria-hidden
-            />
-            <video
               ref={remoteRef}
-              className="remote-video"
-              src={config.remoteVideo}
+              className="remote-video-surface"
               autoPlay
               playsInline
               loop
               muted
-              onCanPlay={onRemoteReady}
-              onLoadedData={onRemoteReady}
+              preload="auto"
+              crossOrigin="anonymous"
+              data-active={showRemote ? "true" : undefined}
+              data-revealed={
+                phase === "joining" || phase === "live" || undefined
+              }
+              data-liquid-ignore={
+                phase === "joining" || phase === "live" ? undefined : ""
+              }
               data-testid="remote-video"
+              aria-hidden={!showRemote}
             />
-            <div className="studio-light" aria-hidden />
-            {status === "effects" && (
-              <EffectsPanel
-                active={effect}
-                showReactions={showReactions}
-                onClose={() => {
-                  setShowReactions(false);
-                  setEffect("none");
-                  dispatch({ type: "CLOSE_EFFECTS" });
-                  autoHide.bump();
-                }}
-                onSelect={(mode) => {
-                  if (mode === "reactions") {
-                    setShowReactions((value) => !value);
-                    setEffect("reactions");
-                    return;
-                  }
-                  setShowReactions(false);
-                  setEffect((current) => (current === mode ? "none" : mode));
-                  autoHide.bump();
-                }}
-                onReaction={(emoji) => {
-                  setReaction(emoji);
-                  window.setTimeout(() => setReaction(null), REACTION_MS);
-                }}
-              />
-            )}
           </div>
           <div className="video-overlay" />
         </div>
-      )}
 
-      {status === "prejoin" && (
-        <PrejoinScreen
-          name={config.participantName}
-          avatar={config.participantAvatar}
-          onStart={() => {
-            void beginConnecting();
-          }}
-          onCancel={() => undefined}
-        />
-      )}
-
-      {status === "requesting-permissions" && (
-        <ConnectingScreen message="Starting camera…" />
-      )}
-
-      {status === "connecting" && (
-        <>
-          <ConnectingScreen message="Connecting…" />
-          <ContactPill
-            name={config.participantName}
-            avatar={config.participantAvatar}
-            connecting
-            onClick={() => setParticipantOpen(true)}
+        {/* Keep the local surface mounted for the whole active call so camera
+            off only disables the track / shows a placeholder — LiquidGL still
+            snapshots a stable video node instead of remounting. */}
+        {showLocal && (
+          <LocalCameraSurface
+            stream={stream}
+            videoEnabled={videoEnabled}
+            mirrored={facingMode === "user"}
+            mode={mode}
+            selfName="You"
+            selfAvatar={config.selfAvatar}
+            style={selfStyle}
+            nodeRef={dragNodeRef}
+            videoRef={localVideoRef}
+            draggable={dragEnabled}
+            onPointerDown={onSelfPointerDown}
+            onPointerMove={onDragPointerMove}
+            onPointerUp={onDragPointerUp}
           />
-        </>
-      )}
+        )}
+      </div>
 
-      {showLiveChrome && !autoHide.visible && (
+      <div className="liquid-canvas-layer" aria-hidden="true" />
+
+      {phase === "live" && !controlsVisible && (
         <button
           type="button"
           className="tap-catcher"
           aria-label="Show call controls"
-          onClick={() => autoHide.show()}
+          onClick={() => showControls()}
           data-testid="tap-restore"
         />
       )}
 
-      {showLiveChrome && (
-        <div
-          className={`controls-layer ${
-            autoHide.visible ? "is-visible" : "is-hidden"
-          }`}
-          data-testid="controls-layer"
-          data-visible={autoHide.visible}
-        >
-          <ContactPill
-            name={config.participantName}
-            avatar={config.participantAvatar}
-            onClick={() => {
-              autoHide.bump();
-              setParticipantOpen(true);
-            }}
-          />
-          <button
-            type="button"
-            className="effects-btn liquidGL"
-            aria-label="Open effects"
-            title="Effects"
-            onClick={() => {
-              hapticTap();
-              autoHide.bump();
-              dispatch({ type: "OPEN_EFFECTS" });
-            }}
-            data-testid="effects-button"
-          >
-            <span className="content">
-              <Sparkles size={24} />
-            </span>
-          </button>
-          <CallControlRail
-            videoEnabled={media.videoEnabled}
-            audioEnabled={media.audioEnabled}
-            onToggleCamera={() => {
-              autoHide.bump();
-              const enabled = media.toggleVideo();
-              showStatus(enabled ? "camera-on" : "camera-off");
-            }}
-            onToggleMic={() => {
-              autoHide.bump();
-              const enabled = media.toggleAudio();
-              showStatus(enabled ? "microphone-unmuted" : "microphone-muted");
-            }}
-            onMore={() => {
-              autoHide.bump();
-              setMoreOpen(true);
-            }}
-            onEnd={endCall}
-          />
-          <button
-            type="button"
-            className="flip-btn liquidGL control-btn"
-            aria-label="Switch camera"
-            title="Switch camera"
-            onClick={() => {
-              hapticTap();
-              autoHide.bump();
-              void media.flipCamera().then((facing) => {
-                if (!facing) return;
-                showStatus(
-                  facing === "user" ? "front-camera" : "back-camera",
-                );
-              });
-            }}
-            data-testid="flip-camera"
-          >
-            <span className="content">
-              <SwitchCamera size={24} />
-            </span>
-          </button>
-        </div>
-      )}
-
-      {showSelf && (
-        <SelfView
-          stream={media.stream}
-          videoEnabled={media.videoEnabled}
-          mirrored={media.facingMode === "user"}
-          participantName="You"
-          style={selfStyle}
-          nodeRef={drag.nodeRef}
-          onPointerDown={(e) => {
-            autoHide.bump();
-            drag.onPointerDown(e);
-          }}
-          onPointerMove={drag.onPointerMove}
-          onPointerUp={drag.onPointerUp}
-        />
-      )}
-
-      {statusMessage && (status === "live" || status === "effects") && (
-        <StatusPill
-          message={statusMessage}
-          leaving={statusLeaving}
-          onMutedTap={() => {
-            media.setAudioEnabled(true);
-            showStatus("microphone-unmuted");
-            autoHide.bump();
-          }}
-        />
-      )}
-
-      {reaction && (
-        <div className="reaction-burst" aria-live="polite">
-          {reaction}
-        </div>
-      )}
-
-      {moreOpen && <MoreSheet onClose={() => setMoreOpen(false)} />}
-      {participantOpen && (
-        <ParticipantSheet
+      <div
+        className={`facetime-chrome ${showChrome ? "is-visible" : "is-hidden"}`}
+        data-testid="facetime-chrome"
+        data-visible={showChrome}
+        aria-hidden={!showChrome}
+      >
+        <ContactPill
           name={config.participantName}
           avatar={config.participantAvatar}
-          onClose={() => setParticipantOpen(false)}
+          connecting={phase === "connecting"}
+        />
+        <EffectsButton />
+
+        <CallControlRail
+          videoEnabled={videoEnabled}
+          audioEnabled={audioEnabled}
+          onToggleCamera={() => {
+            bumpControls();
+            toggleVideo();
+          }}
+          onToggleMic={() => {
+            bumpControls();
+            toggleAudio();
+          }}
+          onEnd={endCall}
+        />
+
+        <button
+          type="button"
+          className="self-flip-capsule liquidGL"
+          data-visible={capsuleVisible}
+          style={capsuleStyle}
+          aria-hidden={!capsuleVisible}
+          aria-label="Flip camera"
+          title="Flip camera"
+          onClick={flipCamera}
+          data-testid="self-flip"
+          tabIndex={capsuleVisible ? 0 : -1}
+        >
+          <span className="content self-flip-capsule__content">
+            <SymbolIcon name="flip-camera" size={14} />
+            <span>Flip</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="waiting-flip-btn control-btn liquidGL"
+          data-visible={showWaitingFlip}
+          aria-hidden={!showWaitingFlip}
+          aria-label="Switch camera"
+          title="Switch camera"
+          onClick={flipCamera}
+          data-testid="waiting-flip"
+          tabIndex={showWaitingFlip ? 0 : -1}
+        >
+          <span className="content">
+            <SymbolIcon name="flip-camera" />
+          </span>
+        </button>
+      </div>
+
+      {showGlassDebug && debug ? (
+        <aside
+          className="liquid-glass-debug"
+          data-liquid-ignore
+          data-testid="liquid-glass-debug"
+        >
+          <div>LiquidGL {debug.packageVersion}</div>
+          <div>Mode: {debug.mode}</div>
+          <div>Snapshot: {debug.snapshotFound ? "found" : "missing"}</div>
+          <div>Targets: {debug.targetCount}</div>
+          <div>Canvases: {debug.canvasCount}</div>
+          <div>WebGL: {debug.webglAvailable ? "available" : "unavailable"}</div>
+        </aside>
+      ) : null}
+
+      {needsGesture && (
+        <CameraActivationFallback
+          onStart={() => {
+            void beginCall();
+          }}
         />
       )}
 
-      {status === "ended" && (
+      {phase === "ended" && (
         <EndedScreen
-          duration={timer.formatted}
+          duration={timerFormatted}
           onCallAgain={() => {
-            timer.reset();
-            setRemoteReady(false);
-            void beginConnecting();
+            resetTimer();
+            void beginCall();
           }}
           onClose={() => {
-            timer.reset();
+            resetTimer();
             dispatch({ type: "CLOSE" });
+            phaseRef.current = "ended";
           }}
         />
       )}
 
-      {status === "permission-error" && (
+      {phase === "permission-error" && !needsGesture && (
         <section className="error-screen" data-testid="permission-error">
           <h1 className="error-screen__title">Camera Access Needed</h1>
           <p className="error-screen__body">
@@ -540,7 +570,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--primary"
               onClick={() => {
-                void beginConnecting();
+                void beginCall();
               }}
             >
               Try Again
@@ -548,7 +578,10 @@ export function CallScreen({ config }: CallScreenProps) {
             <button
               type="button"
               className="btn btn--secondary"
-              onClick={() => dispatch({ type: "CLOSE" })}
+              onClick={() => {
+                dispatch({ type: "CLOSE" });
+                phaseRef.current = "ended";
+              }}
             >
               Close
             </button>
@@ -556,7 +589,7 @@ export function CallScreen({ config }: CallScreenProps) {
         </section>
       )}
 
-      {status === "connection-error" && (
+      {phase === "connection-error" && (
         <section className="error-screen" data-testid="connection-error">
           <h1 className="error-screen__title">Connection Failed</h1>
           <p className="error-screen__body">
@@ -567,7 +600,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--primary"
               onClick={() => {
-                void beginConnecting();
+                void beginCall();
               }}
             >
               Retry
@@ -575,15 +608,16 @@ export function CallScreen({ config }: CallScreenProps) {
             <button
               type="button"
               className="btn btn--secondary"
-              onClick={() => dispatch({ type: "CLOSE" })}
+              onClick={() => {
+                dispatch({ type: "CLOSE" });
+                phaseRef.current = "ended";
+              }}
             >
               Close
             </button>
           </div>
         </section>
       )}
-
-      <PerformanceHud sample={perfSample} />
     </main>
   );
 }

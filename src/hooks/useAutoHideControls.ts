@@ -7,6 +7,7 @@ export function useAutoHideControls(
   delayMs = AUTO_HIDE_MS,
 ) {
   const [visible, setVisible] = useState(true);
+  const [paused, setPaused] = useState(false);
   const timer = useRef<number | null>(null);
 
   const clear = useCallback(() => {
@@ -19,17 +20,27 @@ export function useAutoHideControls(
   const show = useCallback(() => {
     setVisible(true);
     clear();
-    if (!active || keepVisible) return;
+    if (!active || keepVisible || paused) return;
     timer.current = window.setTimeout(() => {
       setVisible(false);
     }, delayMs);
-  }, [active, clear, delayMs, keepVisible]);
+  }, [active, clear, delayMs, keepVisible, paused]);
 
   const hide = useCallback(() => {
-    if (keepVisible) return;
+    if (keepVisible || paused) return;
     clear();
     setVisible(false);
-  }, [clear, keepVisible]);
+  }, [clear, keepVisible, paused]);
+
+  const pause = useCallback(() => {
+    setPaused(true);
+    clear();
+    setVisible(true);
+  }, [clear]);
+
+  const resume = useCallback(() => {
+    setPaused(false);
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -37,16 +48,16 @@ export function useAutoHideControls(
       setVisible(true);
       return;
     }
-    if (keepVisible) {
+    if (keepVisible || paused) {
       clear();
       setVisible(true);
       return;
     }
     show();
     return clear;
-  }, [active, clear, keepVisible, show]);
+  }, [active, clear, keepVisible, paused, show]);
 
   useEffect(() => clear, [clear]);
 
-  return { visible, show, hide, bump: show };
+  return { visible, show, hide, bump: show, pause, resume, paused };
 }
