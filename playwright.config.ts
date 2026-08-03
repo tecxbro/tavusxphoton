@@ -2,7 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
@@ -14,6 +15,13 @@ export default defineConfig({
     command: "npm run dev -- --host 127.0.0.1",
     url: "http://127.0.0.1:5173",
     reuseExistingServer: !process.env.CI,
+    env: {
+      VITE_ENABLE_PHO_TEST_CONTROLLER: "true",
+      ENABLE_PHO_TEST_CONTROLLER: "true",
+      TEST_CONTROLLER_SECRET:
+        process.env.TEST_CONTROLLER_SECRET || "local-dev-controller-secret",
+      PHO_TEST_USE_MEMORY_STORE: "true",
+    },
   },
   projects: [
     {

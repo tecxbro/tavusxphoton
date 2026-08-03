@@ -22,7 +22,9 @@ import { useAutoHideControls } from "../hooks/useAutoHideControls";
 import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
 import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
+import { useLiquidGlass } from "../hooks/useLiquidGlass";
 import { useMediaDevices } from "../hooks/useMediaDevices";
+import { usePhoTestCommands } from "../hooks/usePhoTestCommands";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import {
   JOIN_MORPH_MS,
@@ -32,7 +34,6 @@ import {
   type CallPhase,
 } from "../lib/callState";
 import { hapticTap } from "../lib/haptics";
-import { createPhoControllerChannel } from "../lib/phoControllerChannel";
 
 interface CallScreenProps {
   config: CallConfig;
@@ -48,9 +49,19 @@ function localModeFor(
   return "fullscreen";
 }
 
+function wantsDebugGlass(): boolean {
+  if (typeof window === "undefined") return false;
+  if (import.meta.env.DEV) {
+    return new URLSearchParams(window.location.search).has("debugGlass");
+  }
+  return new URLSearchParams(window.location.search).get("debugGlass") === "1";
+}
+
 export function CallScreen({ config }: CallScreenProps) {
   const [phase, dispatch] = useReducer(callReducer, "bootstrapping");
   const [needsGesture, setNeedsGesture] = useState(false);
+  const [backgroundReady, setBackgroundReady] = useState(false);
+  const [showGlassDebug, setShowGlassDebug] = useState(false);
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
@@ -58,6 +69,7 @@ export function CallScreen({ config }: CallScreenProps) {
   const phaseRef = useRef<CallPhase>(phase);
   const transitionTimers = useRef<number[]>([]);
   const bootstrapped = useRef(false);
+  const attemptRef = useRef(0);
 
   phaseRef.current = phase;
 
@@ -109,6 +121,15 @@ export function CallScreen({ config }: CallScreenProps) {
     transitionTimers.current = [];
   }, []);
 
+  const clearRemoteVideo = useCallback(() => {
+    const remote = remoteRef.current;
+    if (!remote) return;
+    remote.pause();
+    remote.removeAttribute("src");
+    remote.removeAttribute("data-revealed");
+    remote.load();
+  }, []);
+
   useEffect(() => {
     if (dragging) pauseControls();
     else if (phase === "live") resumeControls();
@@ -120,35 +141,39 @@ export function CallScreen({ config }: CallScreenProps) {
     };
   }, [clearTransitionTimers]);
 
+  useEffect(() => {
+    setShowGlassDebug(wantsDebugGlass());
+  }, []);
+
   const beginCall = useCallback(async () => {
     clearTransitionTimers();
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
 
-    if (remoteRef.current) {
-      remoteRef.current.pause();
-      remoteRef.current.removeAttribute("src");
-      remoteRef.current.load();
-    }
-
+    clearRemoteVideo();
     setNeedsGesture(false);
+    setBackgroundReady(false);
 
     const prior = phaseRef.current;
-    if (isActiveCallPhase(prior)) {
+    if (isActiveCallPhase(prior) || prior === "ended") {
       stopAll();
       stopTimer();
-      dispatch({ type: "END" });
-      phaseRef.current = "ended";
     }
 
-    dispatch({ type: "BOOTSTRAP" });
+    // Always restart explicitly — do not transit through ended during reset.
+    dispatch({ type: "RESTART" });
     phaseRef.current = "bootstrapping";
 
     const nextStream = await requestPermissions();
+    if (attempt !== attemptRef.current) return;
+
     if (!nextStream) {
       const message = mediaError ?? "";
       if (!/NotAllowedError|Permission denied|Permission/i.test(message)) {
         setNeedsGesture(true);
       }
       dispatch({ type: "PERMISSIONS_DENIED" });
+      phaseRef.current = "permission-error";
       return;
     }
 
@@ -156,6 +181,7 @@ export function CallScreen({ config }: CallScreenProps) {
     dispatch({ type: "PERMISSIONS_GRANTED" });
     phaseRef.current = "ringing";
   }, [
+    clearRemoteVideo,
     clearTransitionTimers,
     mediaError,
     requestPermissions,
@@ -167,14 +193,11 @@ export function CallScreen({ config }: CallScreenProps) {
   const endCall = useCallback(() => {
     clearTransitionTimers();
     stopAll();
-    if (remoteRef.current) {
-      remoteRef.current.pause();
-      remoteRef.current.removeAttribute("src");
-      remoteRef.current.load();
-    }
+    clearRemoteVideo();
     stopTimer();
     dispatch({ type: "END" });
-  }, [clearTransitionTimers, stopAll, stopTimer]);
+    phaseRef.current = "ended";
+  }, [clearRemoteVideo, clearTransitionTimers, stopAll, stopTimer]);
 
   useEffect(() => {
     if (bootstrapped.current) return;
@@ -182,35 +205,68 @@ export function CallScreen({ config }: CallScreenProps) {
     void beginCall();
   }, [beginCall]);
 
-  useEffect(() => {
-    const controller = createPhoControllerChannel((message) => {
-      if (message.type === "answer") {
-        if (phaseRef.current === "ringing") {
-          dispatch({ type: "PHO_ANSWERED" });
-        }
-        return;
+  usePhoTestCommands(config.sessionId, {
+    onAnswer: () => {
+      if (phaseRef.current === "ringing") {
+        dispatch({ type: "PHO_ANSWERED" });
+        phaseRef.current = "connecting";
       }
-
-      if (message.type === "end") {
-        endCall();
-        return;
-      }
-
+    },
+    onEnd: () => {
+      endCall();
+    },
+    onReset: () => {
       void beginCall();
-    });
+    },
+    getPhase: () => phaseRef.current,
+  });
 
-    return controller.close;
-  }, [beginCall, endCall]);
+  const showRemote =
+    phase === "connecting" || phase === "joining" || phase === "live";
+
+  useEffect(() => {
+    const remote = remoteRef.current;
+    if (!remote) return;
+    const attempt = attemptRef.current;
+
+    if (!showRemote) {
+      if (remote.getAttribute("src")) {
+        clearRemoteVideo();
+      }
+      return;
+    }
+
+    if (remote.getAttribute("src") !== config.remoteVideo) {
+      remote.setAttribute("src", config.remoteVideo);
+      remote.load();
+      void remote.play().catch(() => undefined);
+    }
+
+    const onError = () => {
+      if (attempt !== attemptRef.current) return;
+      dispatch({ type: "CONNECTION_FAILED" });
+      phaseRef.current = "connection-error";
+    };
+    remote.addEventListener("error", onError);
+    return () => {
+      remote.removeEventListener("error", onError);
+    };
+  }, [clearRemoteVideo, config.remoteVideo, showRemote]);
 
   useFirstVideoFrame(remoteRef, phase === "connecting", () => {
+    if (phaseRef.current !== "connecting") return;
     dispatch({ type: "REMOTE_FRAME" });
+    phaseRef.current = "joining";
   });
 
   useEffect(() => {
     if (phase !== "joining") return;
+    const attempt = attemptRef.current;
     clearTransitionTimers();
     const id = window.setTimeout(() => {
+      if (attempt !== attemptRef.current) return;
       dispatch({ type: "JOIN_COMPLETE" });
+      phaseRef.current = "live";
     }, JOIN_MORPH_MS);
     transitionTimers.current.push(id);
     return () => {
@@ -220,6 +276,38 @@ export function CallScreen({ config }: CallScreenProps) {
       );
     };
   }, [clearTransitionTimers, phase]);
+
+  // Mark background ready once local camera has a frame, or the camera-off
+  // placeholder is visible, so LiquidGL can snapshot real pixels.
+  useEffect(() => {
+    if (!isActiveCallPhase(phase)) {
+      setBackgroundReady(false);
+      return;
+    }
+
+    if (!videoEnabled) {
+      setBackgroundReady(true);
+      return;
+    }
+
+    const video = localVideoRef.current;
+    if (!video) {
+      setBackgroundReady(Boolean(stream));
+      return;
+    }
+
+    const markReady = () => setBackgroundReady(true);
+    if (video.readyState >= 2) {
+      markReady();
+      return;
+    }
+    video.addEventListener("loadeddata", markReady);
+    video.addEventListener("playing", markReady);
+    return () => {
+      video.removeEventListener("loadeddata", markReady);
+      video.removeEventListener("playing", markReady);
+    };
+  }, [phase, stream, videoEnabled]);
 
   const flipCamera = useCallback(() => {
     hapticTap();
@@ -241,8 +329,14 @@ export function CallScreen({ config }: CallScreenProps) {
     isActiveCallPhase(phase) && (phase !== "live" || controlsVisible);
   const showWaitingFlip = phase === "ringing" || phase === "connecting";
   const showLiveExtras = phase === "joining" || phase === "live";
-  const showRemote =
-    phase === "connecting" || phase === "joining" || phase === "live";
+
+  const { mode: liquidMode } = useLiquidGlass({
+    enabled: showLocal,
+    backgroundReady: backgroundReady && showLocal,
+    phase,
+    controlsVisible: showChrome,
+    layoutMode: mode,
+  });
 
   const selfStyle = useMemo(() => {
     if (mode === "fullscreen" || !dragPosition) return undefined;
@@ -256,6 +350,10 @@ export function CallScreen({ config }: CallScreenProps) {
   const chromeVisibleAttr =
     phase === "live" ? (controlsVisible ? "visible" : "hidden") : "visible";
 
+  const debug = showGlassDebug
+    ? window.__miniPhoLiquidGlassDebug__
+    : null;
+
   return (
     <main
       ref={screenRef}
@@ -264,50 +362,51 @@ export function CallScreen({ config }: CallScreenProps) {
       data-phase={phase}
       data-chrome={chromeVisibleAttr}
       data-camera={videoEnabled ? "on" : "off"}
+      data-liquid-mode={liquidMode}
     >
-      <div id="video-stage">
-        <div className="remote-video-wrap">
-          {showRemote ? (
+      <div id="liquid-gl-snapshot" className="call-visual-stage">
+        <div id="video-stage">
+          <div className="remote-video-wrap">
             <video
               ref={remoteRef}
               className="remote-video-surface"
-              src={config.remoteVideo}
               autoPlay
               playsInline
               loop
               muted
               preload="auto"
               crossOrigin="anonymous"
+              data-active={showRemote ? "true" : undefined}
               data-revealed={
                 phase === "joining" || phase === "live" || undefined
               }
               data-testid="remote-video"
-              onError={() => dispatch({ type: "CONNECTION_FAILED" })}
+              aria-hidden={!showRemote}
             />
-          ) : null}
+          </div>
+          <div className="video-overlay" />
         </div>
-        <div className="video-overlay" />
-      </div>
 
-      {showLocal && (
-        <LocalCameraSurface
-          stream={stream}
-          videoEnabled={videoEnabled}
-          mirrored={facingMode === "user"}
-          mode={mode}
-          selfName="You"
-          selfAvatar={config.selfAvatar}
-          showFlipCapsule={showLiveExtras && controlsVisible}
-          style={selfStyle}
-          nodeRef={dragNodeRef}
-          videoRef={localVideoRef}
-          onFlip={flipCamera}
-          draggable={dragEnabled}
-          onPointerDown={onSelfPointerDown}
-          onPointerMove={onDragPointerMove}
-          onPointerUp={onDragPointerUp}
-        />
-      )}
+        {showLocal && (
+          <LocalCameraSurface
+            stream={stream}
+            videoEnabled={videoEnabled}
+            mirrored={facingMode === "user"}
+            mode={mode}
+            selfName="You"
+            selfAvatar={config.selfAvatar}
+            showFlipCapsule={showLiveExtras && controlsVisible}
+            style={selfStyle}
+            nodeRef={dragNodeRef}
+            videoRef={localVideoRef}
+            onFlip={flipCamera}
+            draggable={dragEnabled}
+            onPointerDown={onSelfPointerDown}
+            onPointerMove={onDragPointerMove}
+            onPointerUp={onDragPointerUp}
+          />
+        )}
+      </div>
 
       {phase === "live" && !controlsVisible && (
         <button
@@ -346,21 +445,37 @@ export function CallScreen({ config }: CallScreenProps) {
           onEnd={endCall}
         />
 
-        {showWaitingFlip && (
-          <button
-            type="button"
-            className="waiting-flip-btn liquidGL control-btn"
-            aria-label="Switch camera"
-            title="Switch camera"
-            onClick={flipCamera}
-            data-testid="waiting-flip"
-          >
-            <span className="content">
-              <SymbolIcon name="camera.rotate" size={22} />
-            </span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="waiting-flip-btn liquidGL control-btn"
+          aria-label="Switch camera"
+          title="Switch camera"
+          onClick={flipCamera}
+          data-testid="waiting-flip"
+          data-visible={showWaitingFlip}
+          aria-hidden={!showWaitingFlip}
+          tabIndex={showWaitingFlip ? 0 : -1}
+        >
+          <span className="content">
+            <SymbolIcon name="camera.rotate" size={22} />
+          </span>
+        </button>
       </div>
+
+      {showGlassDebug && debug ? (
+        <aside
+          className="liquid-glass-debug"
+          data-liquid-ignore
+          data-testid="liquid-glass-debug"
+        >
+          <div>LiquidGL {debug.packageVersion}</div>
+          <div>Mode: {debug.mode}</div>
+          <div>Snapshot: {debug.snapshotFound ? "found" : "missing"}</div>
+          <div>Targets: {debug.targetCount}</div>
+          <div>Canvases: {debug.canvasCount}</div>
+          <div>WebGL: {debug.webglAvailable ? "available" : "unavailable"}</div>
+        </aside>
+      ) : null}
 
       {needsGesture && (
         <CameraActivationFallback
@@ -380,6 +495,7 @@ export function CallScreen({ config }: CallScreenProps) {
           onClose={() => {
             resetTimer();
             dispatch({ type: "CLOSE" });
+            phaseRef.current = "ended";
           }}
         />
       )}
@@ -403,7 +519,10 @@ export function CallScreen({ config }: CallScreenProps) {
             <button
               type="button"
               className="btn btn--secondary"
-              onClick={() => dispatch({ type: "CLOSE" })}
+              onClick={() => {
+                dispatch({ type: "CLOSE" });
+                phaseRef.current = "ended";
+              }}
             >
               Close
             </button>
@@ -430,7 +549,10 @@ export function CallScreen({ config }: CallScreenProps) {
             <button
               type="button"
               className="btn btn--secondary"
-              onClick={() => dispatch({ type: "CLOSE" })}
+              onClick={() => {
+                dispatch({ type: "CLOSE" });
+                phaseRef.current = "ended";
+              }}
             >
               Close
             </button>

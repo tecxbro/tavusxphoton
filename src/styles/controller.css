@@ -16,16 +16,39 @@
   line-height: 1.2;
 }
 
-.pho-controller__status {
-  margin: 0 0 24px;
-  font-size: 16px;
+.pho-controller__meta {
+  margin: 0 0 8px;
+  font-size: 13px;
   line-height: 1.4;
+  color: #444;
 }
 
-.pho-controller__unsupported {
-  margin: 0 0 16px;
-  font-size: 14px;
-  color: #555;
+.pho-controller__meta code {
+  font-size: 12px;
+}
+
+.pho-controller__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pho-controller__field input {
+  min-height: 42px;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.pho-controller__status {
+  margin: 16px 0 24px;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .pho-controller__actions {
@@ -62,4 +85,13 @@
 .pho-controller__btn--reset {
   background: #e5e5ea;
   color: #111;
+}
+
+.pho-controller__btn--clear {
+  margin-bottom: 8px;
+  background: transparent;
+  border: 1px solid #c7c7cc;
+  color: #333;
+  min-height: 40px;
+  font-size: 14px;
 }
