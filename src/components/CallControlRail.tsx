@@ -28,7 +28,7 @@ export function CallControlRail({
       >
         <span className="symbol-swap" data-off={!videoEnabled || undefined}>
           <SymbolIcon
-            name={videoEnabled ? "video.fill" : "video.slash.fill"}
+            name={videoEnabled ? "camera-on" : "camera-off"}
             size={30}
             className={videoEnabled ? "symbol-on" : "symbol-off"}
           />
@@ -45,7 +45,7 @@ export function CallControlRail({
       >
         <span className="symbol-swap" data-off={!audioEnabled || undefined}>
           <SymbolIcon
-            name={audioEnabled ? "mic.fill" : "mic.slash.fill"}
+            name={audioEnabled ? "microphone-on" : "microphone-off"}
             size={30}
             className={audioEnabled ? "symbol-on" : "symbol-off"}
           />
@@ -68,7 +68,7 @@ export function CallControlRail({
           disabled
         >
           <span className="content">
-            <SymbolIcon name="ellipsis" size={28} />
+            <SymbolIcon name="more" size={28} />
           </span>
         </button>
       </div>
@@ -80,7 +80,7 @@ export function CallControlRail({
         onClick={onEnd}
         testId="end-call"
       >
-        <SymbolIcon name="xmark" size={32} />
+        <SymbolIcon name="end-call" size={32} />
       </CallControlButton>
     </div>
   );

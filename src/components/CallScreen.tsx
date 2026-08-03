@@ -465,10 +465,7 @@ export function CallScreen({ config }: CallScreenProps) {
             tabIndex={showWaitingFlip ? 0 : -1}
           >
             <span className="content">
-              <SymbolIcon
-                name="arrow.triangle.2.circlepath.camera"
-                size={26}
-              />
+              <SymbolIcon name="flip-camera" size={26} />
             </span>
           </button>
         </div>

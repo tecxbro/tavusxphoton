@@ -120,7 +120,7 @@ export function LocalCameraSurface({
           onPointerDown={(event) => event.stopPropagation()}
         >
           <span className="content self-flip-capsule__content">
-            <SymbolIcon name="arrow.triangle.2.circlepath.camera" size={16} />
+            <SymbolIcon name="flip-camera" size={16} />
             <span>Flip</span>
           </span>
         </button>

@@ -1,3 +1,5 @@
+import { SymbolIcon } from "./SymbolIcon";
+
 export function EffectsButton() {
   return (
     <div
@@ -7,7 +9,7 @@ export function EffectsButton() {
       data-testid="aperture-button"
     >
       <span className="content effects-btn__content">
-        <span className="effects-btn__glyph">ƒ</span>
+        <SymbolIcon name="effects" size={27} />
       </span>
     </div>
   );

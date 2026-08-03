@@ -50,7 +50,7 @@ export function ContactPill({
         {!connecting && (
           <SymbolIcon
             className="contact-pill__chevron"
-            name="chevron.right"
+            name="contact-chevron"
             size={14}
           />
         )}
