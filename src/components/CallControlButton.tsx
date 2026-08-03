@@ -11,6 +11,7 @@ interface CallControlButtonProps {
   children: ReactNode;
   className?: string;
   pressed?: boolean;
+  testId?: string;
 }
 
 export function CallControlButton({
@@ -21,6 +22,7 @@ export function CallControlButton({
   children,
   className = "",
   pressed = false,
+  testId,
 }: CallControlButtonProps) {
   const variantClass =
     variant === "camera"
@@ -39,7 +41,8 @@ export function CallControlButton({
       className={`control-btn ${variantClass} ${className}`.trim()}
       aria-label={ariaLabel}
       title={title}
-      aria-pressed={pressed}
+      aria-pressed={pressed || undefined}
+      data-testid={testId}
       onClick={() => {
         hapticTap();
         onClick();

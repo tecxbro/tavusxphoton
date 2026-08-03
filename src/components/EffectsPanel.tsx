@@ -5,11 +5,12 @@ import {
   SunMedium,
   X,
 } from "lucide-react";
-import type { EffectMode } from "../lib/callState";
 import { hapticTap } from "../lib/liquidGlass";
 
+type EffectMode = "none" | "portrait" | "studio" | "memoji" | "reactions";
+
 const EFFECTS: Array<{
-  id: Exclude<EffectMode, "none" | "reactions"> | "reactions";
+  id: Exclude<EffectMode, "none">;
   label: string;
   icon: typeof Sparkles;
 }> = [

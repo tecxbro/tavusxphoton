@@ -19,10 +19,41 @@ interface DragState {
   originTop: number;
 }
 
+interface DragOptions {
+  compact?: boolean;
+}
+
 const STORAGE_KEY = "mini-pho-self-view";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function anchors(
+  width: number,
+  height: number,
+  bounds: DOMRect,
+  compact: boolean,
+): CornerPosition[] {
+  const rightPad = 24;
+  const leftPad = 18;
+  const topExpanded = 68;
+  const topCompact = 18;
+  const railReserve = compact ? 24 : 280;
+  const safeLeft = leftPad;
+  const safeRight = bounds.width - width - rightPad;
+  const safeTop = (compact ? topCompact : topExpanded) + 8;
+  const safeBottom = Math.max(
+    safeTop,
+    bounds.height - height - railReserve,
+  );
+
+  return [
+    { left: safeLeft, top: safeTop },
+    { left: safeRight, top: safeTop },
+    { left: safeLeft, top: safeBottom },
+    { left: safeRight, top: safeBottom },
+  ];
 }
 
 function nearestCorner(
@@ -31,24 +62,9 @@ function nearestCorner(
   width: number,
   height: number,
   bounds: DOMRect,
-  endCallSafeBottom: number,
+  compact: boolean,
 ): CornerPosition {
-  const pad = 18;
-  const safeLeft = pad;
-  const safeRight = bounds.width - width - pad;
-  const safeTop = pad + 92;
-  const safeBottom = Math.max(
-    safeTop,
-    bounds.height - height - endCallSafeBottom,
-  );
-
-  const corners: CornerPosition[] = [
-    { left: safeLeft, top: safeTop },
-    { left: safeRight, top: safeTop },
-    { left: safeLeft, top: safeBottom },
-    { left: safeRight, top: safeBottom },
-  ];
-
+  const corners = anchors(width, height, bounds, compact);
   let best = corners[1];
   let bestDist = Number.POSITIVE_INFINITY;
   for (const corner of corners) {
@@ -66,7 +82,9 @@ function nearestCorner(
 export function useDraggableSelfView(
   containerRef: RefObject<HTMLElement | null>,
   enabled: boolean,
+  options: DragOptions = {},
 ) {
+  const compact = options.compact ?? false;
   const [position, setPosition] = useState<CornerPosition | null>(null);
   const [dragging, setDragging] = useState(false);
   const drag = useRef<DragState | null>(null);
@@ -152,8 +170,8 @@ export function useDraggableSelfView(
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
     const current = position ?? {
-      left: bounds.width - width - 18,
-      top: 92,
+      left: bounds.width - width - 24,
+      top: compact ? 18 : 68,
     };
     const snapped = nearestCorner(
       current.left,
@@ -161,32 +179,39 @@ export function useDraggableSelfView(
       width,
       height,
       bounds,
-      120,
+      compact,
     );
     persist(snapped);
     setDragging(false);
     drag.current = null;
-  }, [containerRef, persist, position]);
+  }, [compact, containerRef, persist, position]);
 
   useEffect(() => {
-    if (!enabled || !containerRef.current || !nodeRef.current || !position) {
-      return;
-    }
+    if (!enabled || !containerRef.current || !nodeRef.current) return;
     const bounds = containerRef.current.getBoundingClientRect();
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
+    if (width <= 0 || height <= 0) return;
+    const current = position ?? {
+      left: bounds.width - width - 24,
+      top: compact ? 18 : 68,
+    };
     const snapped = nearestCorner(
-      position.left,
-      position.top,
+      current.left,
+      current.top,
       width,
       height,
       bounds,
-      120,
+      compact,
     );
-    if (snapped.left !== position.left || snapped.top !== position.top) {
+    if (
+      !position ||
+      snapped.left !== position.left ||
+      snapped.top !== position.top
+    ) {
       persist(snapped);
     }
-  }, [containerRef, enabled, persist, position]);
+  }, [compact, containerRef, enabled, persist, position]);
 
   return {
     nodeRef,

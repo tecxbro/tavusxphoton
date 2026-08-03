@@ -7,31 +7,44 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { Sparkles, SwitchCamera } from "lucide-react";
+import { ApertureButton } from "./ApertureButton";
 import { CallControlRail } from "./CallControlRail";
-import { ConnectingScreen } from "./ConnectingScreen";
+import { CameraActivationFallback } from "./CameraActivationFallback";
+import { CaptureButton } from "./CaptureButton";
+import { CaptureFlash, CaptureToast } from "./CaptureToast";
 import { ContactPill } from "./ContactPill";
-import { EffectsPanel } from "./EffectsPanel";
 import { EndedScreen } from "./EndedScreen";
-import { MoreSheet } from "./MoreSheet";
-import { ParticipantSheet } from "./ParticipantSheet";
-import { PrejoinScreen } from "./PrejoinScreen";
-import { SelfView } from "./SelfView";
-import { StatusPill } from "./StatusPill";
+import {
+  LocalCameraSurface,
+  type LocalCameraMode,
+} from "./LocalCameraSurface";
+import { MorePopover } from "./MorePopover";
+import { SymbolIcon } from "./SymbolIcon";
 import { useAutoHideControls } from "../hooks/useAutoHideControls";
 import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
+import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
 import { useMediaDevices } from "../hooks/useMediaDevices";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import {
+  CAPTURE_FLASH_HOLD_MS,
+  CAPTURE_FLASH_IN_MS,
+  CAPTURE_FLASH_OUT_MS,
+  CAPTURE_TOAST_MS,
   CONNECTING_MIN_MS,
-  REACTION_MS,
-  STATUS_PILL_MS,
+  DIALING_MIN_MS,
+  JOIN_MORPH_MS,
   callReducer,
+  isActiveCallPhase,
   type CallConfig,
-  type EffectMode,
-  type StatusMessage,
+  type CallOverlay,
+  type CallPhase,
 } from "../lib/callState";
+import {
+  CaptureFrameError,
+  captureCallFrame,
+  shareOrDownloadCapture,
+} from "../lib/captureCallFrame";
 import {
   hapticTap,
   initLiquidGlass,
@@ -60,63 +73,63 @@ ${Math.round(sample.viewportWidth)}×${Math.round(sample.viewportHeight)} @${sam
   );
 }
 
+function localModeFor(
+  phase: CallPhase,
+  chromeVisible: boolean,
+): LocalCameraMode {
+  if (phase === "dialing" || phase === "connecting") return "fullscreen";
+  if (phase === "joining") return "expanded";
+  if (phase === "live") return chromeVisible ? "expanded" : "compact";
+  return "fullscreen";
+}
+
 export function CallScreen({ config }: CallScreenProps) {
-  const [status, dispatch] = useReducer(callReducer, "prejoin");
-  const [effect, setEffect] = useState<EffectMode>("none");
-  const [showReactions, setShowReactions] = useState(false);
-  const [reaction, setReaction] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<StatusMessage>(null);
-  const [statusLeaving, setStatusLeaving] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [participantOpen, setParticipantOpen] = useState(false);
-  const [remoteReady, setRemoteReady] = useState(false);
+  const [phase, dispatch] = useReducer(callReducer, "bootstrapping");
+  const [overlay, setOverlay] = useState<CallOverlay>("none");
+  const [needsGesture, setNeedsGesture] = useState(false);
+  const [remoteRevealed, setRemoteRevealed] = useState(false);
+  const [flashActive, setFlashActive] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("You took a FaceTime photo.");
   const [perfSample, setPerfSample] = useState<PerformanceSample | null>(null);
   const [perfMode, setPerfMode] = useState<PerformanceMode>("full");
+  const [audioRouteLabel, setAudioRouteLabel] = useState("iPhone");
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
-  const remoteBgRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const glassRef = useRef<GlassController | null>(null);
-  const connectStarted = useRef<number | null>(null);
-  const statusTimers = useRef<number[]>([]);
+  const phaseRef = useRef<CallPhase>(phase);
+  const dialingStarted = useRef<number | null>(null);
+  const connectingStarted = useRef<number | null>(null);
+  const joinScheduled = useRef(false);
+  const captureTimers = useRef<number[]>([]);
+  const bootstrapped = useRef(false);
+
+  phaseRef.current = phase;
+
   const media = useMediaDevices();
   const viewport = useSafeViewport();
+  const timer = useCallTimer(phase === "live");
 
-  const timerActive = status === "live" || status === "effects";
-  const timer = useCallTimer(timerActive);
-
-  const overlayOpen =
-    moreOpen ||
-    participantOpen ||
-    Boolean(statusMessage) ||
-    status === "effects";
-
+  const overlayOpen = overlay !== "none";
   const autoHide = useAutoHideControls(
-    status === "live",
-    overlayOpen || status === "permission-error",
+    phase === "live",
+    overlayOpen ||
+      phase === "permission-error" ||
+      phase === "connection-error",
   );
 
-  const drag = useDraggableSelfView(
-    screenRef,
-    status === "live" || status === "connecting",
-  );
+  const dragEnabled = phase === "live" && autoHide.visible;
+  const drag = useDraggableSelfView(screenRef, dragEnabled, {
+    compact: !autoHide.visible,
+  });
 
-  const showStatus = useCallback((message: StatusMessage) => {
-    statusTimers.current.forEach((id) => window.clearTimeout(id));
-    statusTimers.current = [];
-    setStatusLeaving(false);
-    setStatusMessage(message);
-    if (!message) return;
-    const leave = window.setTimeout(
-      () => setStatusLeaving(true),
-      STATUS_PILL_MS - 180,
-    );
-    const clear = window.setTimeout(() => {
-      setStatusMessage(null);
-      setStatusLeaving(false);
-    }, STATUS_PILL_MS);
-    statusTimers.current = [leave, clear];
-  }, []);
+  useEffect(() => {
+    if (drag.dragging) autoHide.pause();
+    else if (phase === "live" && overlay === "none") autoHide.resume();
+  }, [autoHide, drag.dragging, overlay, phase]);
 
   const destroyGlass = useCallback(() => {
     glassRef.current?.destroy();
@@ -133,26 +146,23 @@ export function CallScreen({ config }: CallScreenProps) {
   useEffect(() => {
     return () => {
       destroyGlass();
-      statusTimers.current.forEach((id) => window.clearTimeout(id));
+      captureTimers.current.forEach((id) => window.clearTimeout(id));
     };
   }, [destroyGlass]);
 
   useEffect(() => {
-    if (status !== "live" && status !== "effects") {
+    if (!isActiveCallPhase(phase)) {
       destroyGlass();
       return;
     }
-    if (!remoteReady) return;
-    const id = window.setTimeout(() => ensureGlass(), 50);
+    const id = window.setTimeout(() => ensureGlass(), 60);
     return () => window.clearTimeout(id);
-  }, [destroyGlass, ensureGlass, remoteReady, status]);
+  }, [destroyGlass, ensureGlass, phase, overlay, autoHide.visible]);
 
   useEffect(() => {
     const onResize = () => {
       glassRef.current?.refresh();
-      if (status === "live" || status === "effects") {
-        ensureGlass();
-      }
+      if (isActiveCallPhase(phase)) ensureGlass();
     };
     window.addEventListener("orientationchange", onResize);
     window.visualViewport?.addEventListener("resize", onResize);
@@ -160,11 +170,10 @@ export function CallScreen({ config }: CallScreenProps) {
       window.removeEventListener("orientationchange", onResize);
       window.visualViewport?.removeEventListener("resize", onResize);
     };
-  }, [ensureGlass, status]);
+  }, [ensureGlass, phase]);
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    if (status !== "live" && status !== "effects") return;
+    if (!import.meta.env.DEV || phase !== "live") return;
     const tracker = createFpsTracker();
     let raf = 0;
     const loop = () => {
@@ -193,199 +202,272 @@ export function CallScreen({ config }: CallScreenProps) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [perfMode, status, viewport.height, viewport.width]);
+  }, [perfMode, phase, viewport.height, viewport.width]);
 
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "hidden") {
-        destroyGlass();
-      } else if (status === "live" || status === "effects") {
-        ensureGlass();
-      }
+      if (document.visibilityState === "hidden") destroyGlass();
+      else if (isActiveCallPhase(phase)) ensureGlass();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [destroyGlass, ensureGlass, status]);
+  }, [destroyGlass, ensureGlass, phase]);
 
-  const beginConnecting = useCallback(async () => {
-    dispatch({ type: "START" });
+  useEffect(() => {
+    let cancelled = false;
+    void navigator.mediaDevices
+      ?.enumerateDevices?.()
+      .then((devices) => {
+        if (cancelled) return;
+        const audio = devices.find(
+          (device) =>
+            device.kind === "audioinput" &&
+            device.label &&
+            !/default|communications/i.test(device.label),
+        );
+        if (audio?.label) setAudioRouteLabel(audio.label);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [media.stream]);
+
+  const beginCall = useCallback(async () => {
+    setNeedsGesture(false);
+    setRemoteRevealed(false);
+    setOverlay("none");
+    joinScheduled.current = false;
+    dialingStarted.current = null;
+    connectingStarted.current = null;
+    dispatch({ type: "BOOTSTRAP" });
+
     const stream = await media.requestPermissions();
     if (!stream) {
+      const message = media.error ?? "";
+      if (!/NotAllowedError|Permission denied|Permission/i.test(message)) {
+        setNeedsGesture(true);
+      }
       dispatch({ type: "PERMISSIONS_DENIED" });
       return;
     }
-    dispatch({ type: "PERMISSIONS_GRANTED" });
-    connectStarted.current = performance.now();
-    timer.reset();
 
-    const video = remoteRef.current;
-    const alreadyReady =
-      Boolean(video) &&
-      video!.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-    setRemoteReady(alreadyReady);
-    if (alreadyReady) {
-      void video?.play().catch(() => undefined);
-      void remoteBgRef.current?.play().catch(() => undefined);
-    }
+    dispatch({ type: "PERMISSIONS_GRANTED" });
+    dialingStarted.current = performance.now();
+    timer.reset();
+    void remoteRef.current?.load();
+    void remoteRef.current?.play().catch(() => undefined);
   }, [media, timer]);
 
   useEffect(() => {
-    if (
-      status !== "connecting" ||
-      !remoteReady ||
-      connectStarted.current == null
-    ) {
-      return;
-    }
-    const elapsed = performance.now() - connectStarted.current;
-    const wait = Math.max(0, CONNECTING_MIN_MS - elapsed);
+    if (bootstrapped.current) return;
+    bootstrapped.current = true;
+    void beginCall();
+  }, [beginCall]);
+
+  useEffect(() => {
+    if (phase !== "dialing" || dialingStarted.current == null) return;
+    const elapsed = performance.now() - dialingStarted.current;
+    const wait = Math.max(0, DIALING_MIN_MS - elapsed);
     const id = window.setTimeout(() => {
-      dispatch({ type: "CONNECTED" });
-      showStatus("connection-restored");
+      connectingStarted.current = performance.now();
+      dispatch({ type: "ENTER_CONNECTING" });
     }, wait);
     return () => window.clearTimeout(id);
-  }, [remoteReady, showStatus, status]);
+  }, [phase]);
+
+  const startJoin = useCallback(() => {
+    if (joinScheduled.current) return;
+    const current = phaseRef.current;
+    if (current !== "connecting" && current !== "dialing") return;
+    joinScheduled.current = true;
+
+    const enterJoining = () => {
+      setRemoteRevealed(true);
+      void remoteRef.current?.play().catch(() => {
+        dispatch({ type: "CONNECTION_FAILED" });
+      });
+      dispatch({ type: "REMOTE_FRAME" });
+    };
+
+    if (current === "dialing") {
+      connectingStarted.current = performance.now();
+      dispatch({ type: "ENTER_CONNECTING" });
+      window.setTimeout(enterJoining, CONNECTING_MIN_MS);
+      return;
+    }
+
+    const started = connectingStarted.current ?? performance.now();
+    const wait = Math.max(0, CONNECTING_MIN_MS - (performance.now() - started));
+    window.setTimeout(enterJoining, wait);
+  }, []);
+
+  useFirstVideoFrame(
+    remoteRef,
+    phase === "dialing" || phase === "connecting",
+    startJoin,
+  );
+
+  useEffect(() => {
+    if (phase !== "joining") return;
+    const id = window.setTimeout(() => {
+      dispatch({ type: "JOIN_COMPLETE" });
+      window.setTimeout(() => glassRef.current?.refresh(), 40);
+    }, JOIN_MORPH_MS);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   const endCall = useCallback(() => {
     media.stopAll();
     remoteRef.current?.pause();
-    remoteBgRef.current?.pause();
     timer.stop();
     destroyGlass();
-    setMoreOpen(false);
-    setParticipantOpen(false);
-    setShowReactions(false);
-    setEffect("none");
+    setOverlay("none");
+    setFlashActive(false);
+    setToastVisible(false);
     dispatch({ type: "END" });
   }, [destroyGlass, media, timer]);
 
-  const onRemoteReady = useCallback(() => {
-    setRemoteReady(true);
-    void remoteRef.current?.play().catch(() => {
-      dispatch({ type: "CONNECTION_FAILED" });
-    });
-    void remoteBgRef.current?.play().catch(() => undefined);
-  }, []);
+  const flipCamera = useCallback(() => {
+    hapticTap();
+    autoHide.bump();
+    void media.flipCamera();
+  }, [autoHide, media]);
+
+  const runCapture = useCallback(async () => {
+    const remote = remoteRef.current;
+    const stage = screenRef.current;
+    const selfNode = drag.nodeRef.current;
+    if (!remote || !stage || !selfNode) return;
+
+    autoHide.pause();
+    setOverlay("capture-feedback");
+    captureTimers.current.forEach((id) => window.clearTimeout(id));
+    captureTimers.current = [];
+
+    setFlashActive(true);
+    const flashOut = CAPTURE_FLASH_IN_MS + CAPTURE_FLASH_HOLD_MS;
+    captureTimers.current.push(
+      window.setTimeout(() => setFlashActive(false), flashOut + CAPTURE_FLASH_OUT_MS),
+    );
+
+    const stageRect = stage.getBoundingClientRect();
+    const selfRect = selfNode.getBoundingClientRect();
+    const radius =
+      parseFloat(getComputedStyle(selfNode).borderRadius) ||
+      (autoHide.visible ? 24 : 22);
+
+    try {
+      const { blob, filename } = await captureCallFrame({
+        sessionId: config.sessionId,
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        remoteVideo: remote,
+        localVideo: localVideoRef.current,
+        selfView: {
+          x: selfRect.left - stageRect.left,
+          y: selfRect.top - stageRect.top,
+          width: selfRect.width,
+          height: selfRect.height,
+          radius,
+          mirrored: media.facingMode === "user",
+          videoEnabled: media.videoEnabled,
+          placeholderLabel: "You",
+          placeholderAvatar: config.selfAvatar,
+        },
+      });
+      await shareOrDownloadCapture(blob, filename);
+      setToastMessage("You took a FaceTime photo.");
+    } catch (error) {
+      const message =
+        error instanceof CaptureFrameError
+          ? error.message
+          : "Unable to take photo.";
+      setToastMessage(message);
+    }
+
+    setToastVisible(true);
+    captureTimers.current.push(
+      window.setTimeout(() => {
+        setToastVisible(false);
+        setOverlay("none");
+        autoHide.resume();
+      }, CAPTURE_TOAST_MS),
+    );
+  }, [autoHide, config.sessionId, config.selfAvatar, drag.nodeRef, media.facingMode, media.videoEnabled]);
+
+  const mode = localModeFor(phase, autoHide.visible);
+  const showLocal = isActiveCallPhase(phase);
+  const showChrome =
+    isActiveCallPhase(phase) &&
+    (phase !== "live" || autoHide.visible);
+  const showWaitingFlip = phase === "dialing" || phase === "connecting";
+  const showLiveExtras = phase === "joining" || phase === "live";
 
   const selfStyle = useMemo(() => {
-    if (!drag.position) return undefined;
+    if (mode === "fullscreen" || !drag.position) return undefined;
     return {
       top: drag.position.top,
       left: drag.position.left,
       right: "auto",
     } as CSSProperties;
-  }, [drag.position]);
+  }, [drag.position, mode]);
 
-  const effectClass =
-    effect === "portrait"
-      ? "effect-portrait"
-      : effect === "studio"
-        ? "effect-studio"
-        : "";
-
-  const showStage =
-    status === "connecting" ||
-    status === "live" ||
-    status === "effects" ||
-    status === "requesting-permissions";
-
-  const showSelf =
-    status === "connecting" || status === "live";
-
-  const showLiveChrome = status === "live";
+  const chromeVisibleAttr =
+    phase === "live" ? (autoHide.visible ? "visible" : "hidden") : "visible";
 
   return (
     <main
       ref={screenRef}
-      className={`call-screen ${status === "effects" ? "is-effects" : ""} ${effectClass}`}
+      className="call-screen"
       data-testid="call-screen"
-      data-status={status}
+      data-phase={phase}
+      data-chrome={chromeVisibleAttr}
+      data-overlay={overlay}
+      data-camera={media.videoEnabled ? "on" : "off"}
     >
-      {showStage && (
-        <div id="video-stage">
-          <div className="remote-video-wrap">
-            <video
-              ref={remoteBgRef}
-              className="remote-video-bg"
-              src={config.remoteVideo}
-              autoPlay
-              playsInline
-              loop
-              muted
-              aria-hidden
-            />
-            <video
-              ref={remoteRef}
-              className="remote-video"
-              src={config.remoteVideo}
-              autoPlay
-              playsInline
-              loop
-              muted
-              onCanPlay={onRemoteReady}
-              onLoadedData={onRemoteReady}
-              data-testid="remote-video"
-            />
-            <div className="studio-light" aria-hidden />
-            {status === "effects" && (
-              <EffectsPanel
-                active={effect}
-                showReactions={showReactions}
-                onClose={() => {
-                  setShowReactions(false);
-                  setEffect("none");
-                  dispatch({ type: "CLOSE_EFFECTS" });
-                  autoHide.bump();
-                }}
-                onSelect={(mode) => {
-                  if (mode === "reactions") {
-                    setShowReactions((value) => !value);
-                    setEffect("reactions");
-                    return;
-                  }
-                  setShowReactions(false);
-                  setEffect((current) => (current === mode ? "none" : mode));
-                  autoHide.bump();
-                }}
-                onReaction={(emoji) => {
-                  setReaction(emoji);
-                  window.setTimeout(() => setReaction(null), REACTION_MS);
-                }}
-              />
-            )}
-          </div>
-          <div className="video-overlay" />
+      <div id="video-stage">
+        <div className="remote-video-wrap">
+          <video
+            ref={remoteRef}
+            className="remote-video-surface"
+            src={config.remoteVideo}
+            autoPlay
+            playsInline
+            loop
+            muted
+            crossOrigin="anonymous"
+            data-revealed={remoteRevealed || undefined}
+            data-testid="remote-video"
+          />
         </div>
-      )}
+        <div className="video-overlay" />
+      </div>
 
-      {status === "prejoin" && (
-        <PrejoinScreen
-          name={config.participantName}
-          avatar={config.participantAvatar}
-          onStart={() => {
-            void beginConnecting();
+      {showLocal && (
+        <LocalCameraSurface
+          stream={media.stream}
+          videoEnabled={media.videoEnabled}
+          mirrored={media.facingMode === "user"}
+          mode={mode}
+          selfName="You"
+          selfAvatar={config.selfAvatar}
+          showFlipCapsule={showLiveExtras && autoHide.visible}
+          style={selfStyle}
+          nodeRef={drag.nodeRef}
+          videoRef={localVideoRef}
+          onFlip={flipCamera}
+          draggable={dragEnabled}
+          onPointerDown={(event) => {
+            autoHide.bump();
+            drag.onPointerDown(event);
           }}
-          onCancel={() => undefined}
+          onPointerMove={drag.onPointerMove}
+          onPointerUp={drag.onPointerUp}
         />
       )}
 
-      {status === "requesting-permissions" && (
-        <ConnectingScreen message="Starting camera…" />
-      )}
-
-      {status === "connecting" && (
-        <>
-          <ConnectingScreen message="Connecting…" />
-          <ContactPill
-            name={config.participantName}
-            avatar={config.participantAvatar}
-            connecting
-            onClick={() => setParticipantOpen(true)}
-          />
-        </>
-      )}
-
-      {showLiveChrome && !autoHide.visible && (
+      {phase === "live" && !autoHide.visible && (
         <button
           type="button"
           className="tap-catcher"
@@ -395,132 +477,94 @@ export function CallScreen({ config }: CallScreenProps) {
         />
       )}
 
-      {showLiveChrome && (
-        <div
-          className={`controls-layer ${
-            autoHide.visible ? "is-visible" : "is-hidden"
-          }`}
-          data-testid="controls-layer"
-          data-visible={autoHide.visible}
-        >
-          <ContactPill
-            name={config.participantName}
-            avatar={config.participantAvatar}
-            onClick={() => {
-              autoHide.bump();
-              setParticipantOpen(true);
-            }}
-          />
-          <button
-            type="button"
-            className="effects-btn liquidGL"
-            aria-label="Open effects"
-            title="Effects"
-            onClick={() => {
-              hapticTap();
-              autoHide.bump();
-              dispatch({ type: "OPEN_EFFECTS" });
-            }}
-            data-testid="effects-button"
-          >
-            <span className="content">
-              <Sparkles size={24} />
-            </span>
-          </button>
-          <CallControlRail
-            videoEnabled={media.videoEnabled}
-            audioEnabled={media.audioEnabled}
-            onToggleCamera={() => {
-              autoHide.bump();
-              const enabled = media.toggleVideo();
-              showStatus(enabled ? "camera-on" : "camera-off");
-            }}
-            onToggleMic={() => {
-              autoHide.bump();
-              const enabled = media.toggleAudio();
-              showStatus(enabled ? "microphone-unmuted" : "microphone-muted");
-            }}
-            onMore={() => {
-              autoHide.bump();
-              setMoreOpen(true);
-            }}
-            onEnd={endCall}
-          />
-          <button
-            type="button"
-            className="flip-btn liquidGL control-btn"
-            aria-label="Switch camera"
-            title="Switch camera"
-            onClick={() => {
-              hapticTap();
-              autoHide.bump();
-              void media.flipCamera().then((facing) => {
-                if (!facing) return;
-                showStatus(
-                  facing === "user" ? "front-camera" : "back-camera",
-                );
-              });
-            }}
-            data-testid="flip-camera"
-          >
-            <span className="content">
-              <SwitchCamera size={24} />
-            </span>
-          </button>
-        </div>
-      )}
-
-      {showSelf && (
-        <SelfView
-          stream={media.stream}
-          videoEnabled={media.videoEnabled}
-          mirrored={media.facingMode === "user"}
-          participantName="You"
-          style={selfStyle}
-          nodeRef={drag.nodeRef}
-          onPointerDown={(e) => {
-            autoHide.bump();
-            drag.onPointerDown(e);
-          }}
-          onPointerMove={drag.onPointerMove}
-          onPointerUp={drag.onPointerUp}
-        />
-      )}
-
-      {statusMessage && (status === "live" || status === "effects") && (
-        <StatusPill
-          message={statusMessage}
-          leaving={statusLeaving}
-          onMutedTap={() => {
-            media.setAudioEnabled(true);
-            showStatus("microphone-unmuted");
-            autoHide.bump();
-          }}
-        />
-      )}
-
-      {reaction && (
-        <div className="reaction-burst" aria-live="polite">
-          {reaction}
-        </div>
-      )}
-
-      {moreOpen && <MoreSheet onClose={() => setMoreOpen(false)} />}
-      {participantOpen && (
-        <ParticipantSheet
+      <div
+        className={`facetime-chrome ${showChrome ? "is-visible" : "is-hidden"}`}
+        data-testid="facetime-chrome"
+        data-visible={showChrome}
+        aria-hidden={!showChrome}
+      >
+        <ContactPill
           name={config.participantName}
           avatar={config.participantAvatar}
-          onClose={() => setParticipantOpen(false)}
+          connecting={phase === "connecting"}
+          onClick={() => autoHide.bump()}
+        />
+        <ApertureButton onClick={() => autoHide.bump()} />
+
+        {showLiveExtras && (
+          <CaptureButton
+            onClick={() => {
+              autoHide.bump();
+              void runCapture();
+            }}
+          />
+        )}
+
+        <CallControlRail
+          videoEnabled={media.videoEnabled}
+          audioEnabled={media.audioEnabled}
+          moreButtonRef={moreButtonRef}
+          onToggleCamera={() => {
+            autoHide.bump();
+            media.toggleVideo();
+          }}
+          onToggleMic={() => {
+            autoHide.bump();
+            media.toggleAudio();
+          }}
+          onMore={() => {
+            hapticTap();
+            autoHide.bump();
+            setOverlay("more");
+          }}
+          onEnd={endCall}
+        />
+
+        {showWaitingFlip && (
+          <button
+            type="button"
+            className="waiting-flip-btn liquidGL control-btn"
+            aria-label="Switch camera"
+            title="Switch camera"
+            onClick={flipCamera}
+            data-testid="waiting-flip"
+          >
+            <span className="content">
+              <SymbolIcon name="camera.rotate" size={22} />
+            </span>
+          </button>
+        )}
+      </div>
+
+      <MorePopover
+        open={overlay === "more"}
+        audioLabel={audioRouteLabel}
+        contactName={config.participantName}
+        contactAvatar={config.participantAvatar}
+        anchorRef={moreButtonRef}
+        onClose={() => {
+          setOverlay("none");
+          autoHide.bump();
+        }}
+      />
+
+      <CaptureFlash active={flashActive} />
+      <CaptureToast visible={toastVisible} message={toastMessage} />
+
+      {needsGesture && (
+        <CameraActivationFallback
+          onStart={() => {
+            void beginCall();
+          }}
         />
       )}
 
-      {status === "ended" && (
+      {phase === "ended" && (
         <EndedScreen
           duration={timer.formatted}
           onCallAgain={() => {
             timer.reset();
-            setRemoteReady(false);
-            void beginConnecting();
+            void beginCall();
           }}
           onClose={() => {
             timer.reset();
@@ -529,7 +573,7 @@ export function CallScreen({ config }: CallScreenProps) {
         />
       )}
 
-      {status === "permission-error" && (
+      {phase === "permission-error" && !needsGesture && (
         <section className="error-screen" data-testid="permission-error">
           <h1 className="error-screen__title">Camera Access Needed</h1>
           <p className="error-screen__body">
@@ -540,7 +584,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--primary"
               onClick={() => {
-                void beginConnecting();
+                void beginCall();
               }}
             >
               Try Again
@@ -556,7 +600,7 @@ export function CallScreen({ config }: CallScreenProps) {
         </section>
       )}
 
-      {status === "connection-error" && (
+      {phase === "connection-error" && (
         <section className="error-screen" data-testid="connection-error">
           <h1 className="error-screen__title">Connection Failed</h1>
           <p className="error-screen__body">
@@ -567,7 +611,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--primary"
               onClick={() => {
-                void beginConnecting();
+                void beginCall();
               }}
             >
               Retry

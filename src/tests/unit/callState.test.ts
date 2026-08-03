@@ -1,44 +1,50 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AUTO_HIDE_MS,
+  STATUS_PILL_MS,
   callReducer,
   canTransition,
   formatDuration,
   getInitials,
   parseCallSearchParams,
 } from "../../lib/callState";
+import { objectCoverSourceRect } from "../../lib/objectCover";
 import { selectPerformancePolicy } from "../../lib/performance";
-import { AUTO_HIDE_MS, STATUS_PILL_MS } from "../../lib/callState";
 
 describe("call state transitions", () => {
   it("moves through the happy path", () => {
-    let status = callReducer("prejoin", { type: "START" });
-    expect(status).toBe("requesting-permissions");
-    status = callReducer(status, { type: "PERMISSIONS_GRANTED" });
-    expect(status).toBe("connecting");
-    status = callReducer(status, { type: "CONNECTED" });
-    expect(status).toBe("live");
-    status = callReducer(status, { type: "OPEN_EFFECTS" });
-    expect(status).toBe("effects");
-    status = callReducer(status, { type: "CLOSE_EFFECTS" });
-    expect(status).toBe("live");
-    status = callReducer(status, { type: "END" });
-    expect(status).toBe("ended");
+    let phase = callReducer("bootstrapping", { type: "BOOTSTRAP" });
+    expect(phase).toBe("bootstrapping");
+    phase = callReducer(phase, { type: "PERMISSIONS_GRANTED" });
+    expect(phase).toBe("dialing");
+    phase = callReducer(phase, { type: "ENTER_CONNECTING" });
+    expect(phase).toBe("connecting");
+    phase = callReducer(phase, { type: "REMOTE_FRAME" });
+    expect(phase).toBe("joining");
+    phase = callReducer(phase, { type: "JOIN_COMPLETE" });
+    expect(phase).toBe("live");
+    phase = callReducer(phase, { type: "END" });
+    expect(phase).toBe("ended");
   });
 
   it("handles permission denial", () => {
-    const status = callReducer("requesting-permissions", {
+    const phase = callReducer("bootstrapping", {
       type: "PERMISSIONS_DENIED",
     });
-    expect(status).toBe("permission-error");
-    expect(canTransition("permission-error", "requesting-permissions")).toBe(
-      true,
-    );
+    expect(phase).toBe("permission-error");
+    expect(canTransition("permission-error", "bootstrapping")).toBe(true);
   });
 
-  it("restarts from ended", () => {
-    expect(callReducer("ended", { type: "START" })).toBe(
-      "requesting-permissions",
-    );
+  it("allows ending from early phases", () => {
+    expect(canTransition("dialing", "ended")).toBe(true);
+    expect(canTransition("connecting", "ended")).toBe(true);
+    expect(canTransition("joining", "ended")).toBe(true);
+    expect(canTransition("live", "ended")).toBe(true);
+  });
+
+  it("keeps overlays separate from network phases", () => {
+    expect(canTransition("live", "joining")).toBe(false);
+    expect(callReducer("live", { type: "JOIN_COMPLETE" })).toBe("live");
   });
 });
 
@@ -59,13 +65,14 @@ describe("query parameter parsing", () => {
     expect(
       parseCallSearchParams(
         "abc",
-        "name=Nova&avatar=/a.jpg&remoteVideo=/v.mp4",
+        "name=Nova&avatar=/a.jpg&remoteVideo=/v.mp4&selfAvatar=/me.jpg",
       ),
     ).toEqual({
       sessionId: "abc",
       participantName: "Nova",
       participantAvatar: "/a.jpg",
       remoteVideo: "/v.mp4",
+      selfAvatar: "/me.jpg",
     });
   });
 
@@ -91,7 +98,7 @@ describe("performance fallback selection", () => {
 
 describe("auto-hide and status timeouts", () => {
   it("uses the product timeout constants", () => {
-    expect(AUTO_HIDE_MS).toBe(3000);
+    expect(AUTO_HIDE_MS).toBe(2000);
     expect(STATUS_PILL_MS).toBe(2200);
   });
 
@@ -106,5 +113,21 @@ describe("auto-hide and status timeouts", () => {
     expect(message).toBeNull();
     clearTimeout(id);
     vi.useRealTimers();
+  });
+});
+
+describe("object-cover math", () => {
+  it("crops wider sources horizontally", () => {
+    const rect = objectCoverSourceRect(1920, 1080, 400, 800);
+    expect(rect.height).toBe(1080);
+    expect(rect.width).toBeCloseTo(540);
+    expect(rect.x).toBeCloseTo(690);
+  });
+
+  it("crops taller sources vertically", () => {
+    const rect = objectCoverSourceRect(800, 1200, 400, 300);
+    expect(rect.width).toBe(800);
+    expect(rect.height).toBeCloseTo(600);
+    expect(rect.y).toBeCloseTo(300);
   });
 });

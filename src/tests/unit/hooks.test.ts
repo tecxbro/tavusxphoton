@@ -48,16 +48,16 @@ describe("useMediaDevices toggles", () => {
 });
 
 describe("useAutoHideControls", () => {
-  it("hides after inactivity and restores on bump", async () => {
+  it("hides after 2000ms and restores on bump", async () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
-      ({ keep }) => useAutoHideControls(true, keep, 3000),
+      ({ keep }) => useAutoHideControls(true, keep, 2000),
       { initialProps: { keep: false } },
     );
 
     expect(result.current.visible).toBe(true);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
     expect(result.current.visible).toBe(false);
 
@@ -71,6 +71,29 @@ describe("useAutoHideControls", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(result.current.visible).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("pauses while overlay feedback is active", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useAutoHideControls(true, false, 2000));
+
+    act(() => {
+      result.current.pause();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(result.current.visible).toBe(true);
+
+    act(() => {
+      result.current.resume();
+      result.current.bump();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.visible).toBe(false);
     vi.useRealTimers();
   });
 });

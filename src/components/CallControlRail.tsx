@@ -1,11 +1,6 @@
-import {
-  Camera,
-  CameraOff,
-  Mic,
-  MicOff,
-  MoreHorizontal,
-  X,
-} from "lucide-react";
+import type { RefObject } from "react";
+import { hapticTap } from "../lib/liquidGlass";
+import { SymbolIcon } from "./SymbolIcon";
 import { CallControlButton } from "./CallControlButton";
 
 interface CallControlRailProps {
@@ -15,6 +10,7 @@ interface CallControlRailProps {
   onToggleMic: () => void;
   onMore: () => void;
   onEnd: () => void;
+  moreButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function CallControlRail({
@@ -24,6 +20,7 @@ export function CallControlRail({
   onToggleMic,
   onMore,
   onEnd,
+  moreButtonRef,
 }: CallControlRailProps) {
   return (
     <div className="control-rail" role="toolbar" aria-label="Call controls">
@@ -33,8 +30,15 @@ export function CallControlRail({
         title={videoEnabled ? "Turn off camera" : "Turn on camera"}
         pressed={!videoEnabled}
         onClick={onToggleCamera}
+        testId="toggle-camera"
       >
-        {videoEnabled ? <Camera size={26} /> : <CameraOff size={26} />}
+        <span className="symbol-swap" data-off={!videoEnabled || undefined}>
+          <SymbolIcon
+            name={videoEnabled ? "video.fill" : "video.slash.fill"}
+            size={26}
+            className={videoEnabled ? "symbol-on" : "symbol-off"}
+          />
+        </span>
       </CallControlButton>
 
       <CallControlButton
@@ -43,26 +47,42 @@ export function CallControlRail({
         title={audioEnabled ? "Mute microphone" : "Unmute microphone"}
         pressed={!audioEnabled}
         onClick={onToggleMic}
+        testId="toggle-mic"
       >
-        {audioEnabled ? <Mic size={26} /> : <MicOff size={26} />}
+        <span className="symbol-swap" data-off={!audioEnabled || undefined}>
+          <SymbolIcon
+            name={audioEnabled ? "mic.fill" : "mic.slash.fill"}
+            size={26}
+            className={audioEnabled ? "symbol-on" : "symbol-off"}
+          />
+        </span>
       </CallControlButton>
 
-      <CallControlButton
-        variant="more"
-        ariaLabel="More options"
+      <button
+        ref={moreButtonRef}
+        type="button"
+        className="control-btn control-btn--more liquidGL"
+        aria-label="More options"
         title="More"
-        onClick={onMore}
+        data-testid="more-button"
+        onClick={() => {
+          hapticTap();
+          onMore();
+        }}
       >
-        <MoreHorizontal size={26} />
-      </CallControlButton>
+        <span className="content">
+          <SymbolIcon name="ellipsis" size={26} />
+        </span>
+      </button>
 
       <CallControlButton
         variant="end"
         ariaLabel="End call"
         title="End call"
         onClick={onEnd}
+        testId="end-call"
       >
-        <X size={32} strokeWidth={2.5} />
+        <SymbolIcon name="xmark" size={28} />
       </CallControlButton>
     </div>
   );

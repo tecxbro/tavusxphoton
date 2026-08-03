@@ -1,4 +1,5 @@
-.liquidGL {
+.liquidGL,
+.liquidGL-panel {
   position: relative;
   z-index: var(--glass-z);
   isolation: isolate;
@@ -7,7 +8,9 @@
 }
 
 .liquidGL .liquidGL-content,
-.liquidGL > .content {
+.liquidGL > .content,
+.liquidGL-panel .liquidGL-content,
+.liquidGL-panel > .content {
   position: relative;
   z-index: 1;
   pointer-events: none;
@@ -15,7 +18,10 @@
 
 .liquidGL button,
 .liquidGL [role="button"],
-.liquidGL a {
+.liquidGL a,
+.liquidGL-panel button,
+.liquidGL-panel [role="button"],
+.liquidGL-panel a {
   pointer-events: auto;
 }
 
@@ -24,33 +30,61 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.25),
-      rgba(255, 255, 255, 0.09)
+      rgba(255, 255, 255, 0.28),
+      rgba(255, 255, 255, 0.1)
     ),
-    rgba(80, 76, 72, 0.28);
+    rgba(70, 66, 62, 0.3);
 
   -webkit-backdrop-filter:
     blur(18px)
-    saturate(1.35)
-    brightness(1.05);
+    saturate(1.4)
+    brightness(1.06);
 
   backdrop-filter:
     blur(18px)
-    saturate(1.35)
-    brightness(1.05);
+    saturate(1.4)
+    brightness(1.06);
 
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.34);
 
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    0 8px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.glass-fallback-mode .liquidGL-panel {
+  background:
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.2),
+      rgba(40, 40, 40, 0.34)
+    ),
+    rgba(28, 28, 30, 0.42);
+
+  -webkit-backdrop-filter:
+    blur(28px)
+    saturate(1.5)
+    brightness(1.02);
+
+  backdrop-filter:
+    blur(28px)
+    saturate(1.5)
+    brightness(1.02);
+
+  border: 1px solid rgba(255, 255, 255, 0.28);
+
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .liquidGL,
+  .liquidGL-panel,
   .glass-fallback,
-  .glass-fallback-mode .liquidGL {
-    background: rgba(40, 40, 40, 0.92);
+  .glass-fallback-mode .liquidGL,
+  .glass-fallback-mode .liquidGL-panel {
+    background: rgba(40, 40, 40, 0.94);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     border: 1px solid rgba(255, 255, 255, 0.4);

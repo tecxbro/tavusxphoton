@@ -2,30 +2,43 @@
   --font-system:
     -apple-system,
     BlinkMacSystemFont,
-    "Helvetica Neue",
-    Arial,
+    "SF Pro Text",
+    "SF Pro Display",
+    system-ui,
     sans-serif;
 
   --color-white: #ffffff;
   --color-black: #000000;
   --color-call-green: #30d158;
   --color-microphone-orange: #ff9f0a;
-  --color-end-call: #ff2d2d;
+  --color-end-call: #ff3b30;
+  --color-symbol-off: #ff3b30;
   --color-status-cyan: #64d2ff;
+  --color-self-placeholder: #1f3a3a;
 
   --radius-control: 999px;
-  --radius-preview: 28px;
-  --radius-video: 44px;
+  --radius-self-expanded: 24px;
+  --radius-self-compact: 22px;
+  --radius-pill: 22px;
+  --radius-more: 30px;
 
-  --control-small: 58px;
-  --control-end: 74px;
+  --control-top: 44px;
+  --control-rail: 56px;
+  --control-end: 58px;
+  --control-waiting-flip: 50px;
+  --control-capture: 44px;
+
+  --self-expanded-width: clamp(118px, 29.1vw, 132px);
+  --self-compact-width: clamp(88px, 21.8vw, 98px);
+  --self-aspect: 0.455;
 
   --space-edge: 18px;
-  --space-control: 14px;
+  --space-control: 12px;
 
   --glass-z: 30;
   --sheet-z: 50;
   --toast-z: 60;
+  --flash-z: 70;
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
@@ -34,4 +47,11 @@
 
   --vv-width: 100vw;
   --vv-height: 100dvh;
+
+  --motion-join: 520ms;
+  --motion-chrome: 280ms;
+  --motion-self: 400ms;
+  --motion-more-open: 420ms;
+  --motion-more-close: 210ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }

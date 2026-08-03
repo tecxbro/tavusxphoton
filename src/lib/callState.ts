@@ -1,16 +1,16 @@
-export type CallStatus =
-  | "prejoin"
-  | "requesting-permissions"
+export type CallPhase =
+  | "bootstrapping"
+  | "dialing"
   | "connecting"
+  | "joining"
   | "live"
-  | "effects"
   | "ended"
   | "permission-error"
   | "connection-error";
 
-export type CameraFacing = "user" | "environment";
+export type CallOverlay = "none" | "more" | "capture-feedback";
 
-export type EffectMode = "none" | "portrait" | "studio" | "memoji" | "reactions";
+export type CameraFacing = "user" | "environment";
 
 export type StatusMessage =
   | "microphone-muted"
@@ -27,6 +27,7 @@ export interface CallConfig {
   participantName: string;
   participantAvatar: string;
   remoteVideo: string;
+  selfAvatar?: string;
 }
 
 export const defaultCall: CallConfig = {
@@ -37,20 +38,33 @@ export const defaultCall: CallConfig = {
 };
 
 export const CONNECTING_MIN_MS = 700;
+export const DIALING_MIN_MS = 1600;
 export const STATUS_PILL_MS = 2200;
-export const AUTO_HIDE_MS = 3000;
-export const REACTION_MS = 1500;
+export const AUTO_HIDE_MS = 2000;
+export const JOIN_MORPH_MS = 520;
+export const CHROME_HIDE_MS = 280;
+export const SELF_COMPACT_MS = 400;
+export const MORE_OPEN_MS = 420;
+export const MORE_CLOSE_MS = 210;
+export const CAPTURE_FLASH_IN_MS = 40;
+export const CAPTURE_FLASH_HOLD_MS = 55;
+export const CAPTURE_FLASH_OUT_MS = 160;
+export const CAPTURE_TOAST_MS = 1800;
+export const TOGGLE_SYMBOL_MS = 180;
+export const EASE_OUT_EXPO = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 export function parseCallSearchParams(
   sessionId: string,
   search: string,
 ): CallConfig {
   const params = new URLSearchParams(search);
+  const selfAvatar = params.get("selfAvatar") || undefined;
   return {
     sessionId: sessionId || defaultCall.sessionId,
     participantName: params.get("name") || defaultCall.participantName,
     participantAvatar: params.get("avatar") || defaultCall.participantAvatar,
     remoteVideo: params.get("remoteVideo") || defaultCall.remoteVideo,
+    ...(selfAvatar ? { selfAvatar } : {}),
   };
 }
 
@@ -68,33 +82,37 @@ export function formatDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function canTransition(from: CallStatus, to: CallStatus): boolean {
+export function canTransition(from: CallPhase, to: CallPhase): boolean {
   switch (from) {
-    case "prejoin":
-      return to === "requesting-permissions";
-    case "requesting-permissions":
+    case "bootstrapping":
+      return (
+        to === "dialing" ||
+        to === "permission-error" ||
+        to === "ended"
+      );
+    case "dialing":
       return (
         to === "connecting" ||
+        to === "ended" ||
         to === "permission-error" ||
-        to === "prejoin"
+        to === "connection-error"
       );
     case "connecting":
       return (
-        to === "live" ||
+        to === "joining" ||
         to === "connection-error" ||
-        to === "ended" ||
-        to === "prejoin"
+        to === "ended"
       );
+    case "joining":
+      return to === "live" || to === "ended" || to === "connection-error";
     case "live":
-      return to === "effects" || to === "ended" || to === "connection-error";
-    case "effects":
-      return to === "live" || to === "ended";
+      return to === "ended" || to === "connection-error";
     case "ended":
-      return to === "prejoin" || to === "requesting-permissions";
+      return to === "bootstrapping" || to === "dialing";
     case "permission-error":
-      return to === "prejoin" || to === "requesting-permissions";
+      return to === "bootstrapping" || to === "dialing";
     case "connection-error":
-      return to === "prejoin" || to === "requesting-permissions" || to === "ended";
+      return to === "bootstrapping" || to === "dialing" || to === "ended";
     default: {
       const _exhaustive: never = from;
       return _exhaustive;
@@ -103,56 +121,67 @@ export function canTransition(from: CallStatus, to: CallStatus): boolean {
 }
 
 export type CallAction =
-  | { type: "START" }
+  | { type: "BOOTSTRAP" }
   | { type: "PERMISSIONS_GRANTED" }
   | { type: "PERMISSIONS_DENIED" }
-  | { type: "CONNECTED" }
+  | { type: "ENTER_CONNECTING" }
+  | { type: "REMOTE_FRAME" }
+  | { type: "JOIN_COMPLETE" }
   | { type: "CONNECTION_FAILED" }
-  | { type: "OPEN_EFFECTS" }
-  | { type: "CLOSE_EFFECTS" }
   | { type: "END" }
   | { type: "RESTART" }
   | { type: "CLOSE" };
 
-export function callReducer(status: CallStatus, action: CallAction): CallStatus {
+export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
   switch (action.type) {
-    case "START":
+    case "BOOTSTRAP":
       if (
-        status === "prejoin" ||
-        status === "ended" ||
-        status === "permission-error" ||
-        status === "connection-error"
+        phase === "ended" ||
+        phase === "permission-error" ||
+        phase === "connection-error" ||
+        phase === "bootstrapping"
       ) {
-        return "requesting-permissions";
+        return "bootstrapping";
       }
-      return canTransition(status, "requesting-permissions")
-        ? "requesting-permissions"
-        : status;
+      return phase;
     case "PERMISSIONS_GRANTED":
-      return canTransition(status, "connecting") ? "connecting" : status;
+      return canTransition(phase, "dialing") ? "dialing" : phase;
     case "PERMISSIONS_DENIED":
-      return canTransition(status, "permission-error")
+      return canTransition(phase, "permission-error")
         ? "permission-error"
-        : status;
-    case "CONNECTED":
-      return canTransition(status, "live") ? "live" : status;
+        : phase;
+    case "ENTER_CONNECTING":
+      return canTransition(phase, "connecting") ? "connecting" : phase;
+    case "REMOTE_FRAME":
+      return canTransition(phase, "joining") ? "joining" : phase;
+    case "JOIN_COMPLETE":
+      return canTransition(phase, "live") ? "live" : phase;
     case "CONNECTION_FAILED":
-      return canTransition(status, "connection-error")
+      return canTransition(phase, "connection-error")
         ? "connection-error"
-        : status;
-    case "OPEN_EFFECTS":
-      return canTransition(status, "effects") ? "effects" : status;
-    case "CLOSE_EFFECTS":
-      return canTransition(status, "live") ? "live" : status;
+        : phase;
     case "END":
-      return canTransition(status, "ended") ? "ended" : status;
+      return canTransition(phase, "ended") ? "ended" : phase;
     case "RESTART":
-      return "requesting-permissions";
+      return "bootstrapping";
     case "CLOSE":
-      return "prejoin";
+      return "ended";
     default: {
       const _exhaustive: never = action;
       return _exhaustive;
     }
   }
+}
+
+export function isActiveCallPhase(phase: CallPhase): boolean {
+  return (
+    phase === "dialing" ||
+    phase === "connecting" ||
+    phase === "joining" ||
+    phase === "live"
+  );
+}
+
+export function isLiveChromePhase(phase: CallPhase): boolean {
+  return phase === "joining" || phase === "live";
 }

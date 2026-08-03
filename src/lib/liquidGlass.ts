@@ -27,27 +27,45 @@ declare global {
   }
 }
 
-const TARGET = ".liquidGL";
 const SNAPSHOT = "#video-stage";
+const CONTROL_TARGET = ".liquidGL";
+const PANEL_TARGET = ".liquidGL-panel";
 
-function baseOptions(
-  mode: PerformanceMode,
-): LiquidGLOptions {
+function controlOptions(mode: PerformanceMode): LiquidGLOptions {
   const reduced = mode === "reduced";
   return {
     snapshot: SNAPSHOT,
-    target: TARGET,
-    resolution: reduced ? 1 : 1.25,
-    refraction: 0.018,
+    target: CONTROL_TARGET,
+    resolution: reduced ? 1 : 1.35,
+    refraction: 0.024,
     aberration: 0,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    frost: 0.8,
+    bevelDepth: 0.1,
+    bevelWidth: 0.14,
+    frost: 0.55,
     shadow: true,
     specular: !reduced,
     reveal: "none",
     tilt: false,
-    magnify: 1.01,
+    magnify: 1.02,
+  };
+}
+
+function panelOptions(mode: PerformanceMode): LiquidGLOptions {
+  const reduced = mode === "reduced";
+  return {
+    snapshot: SNAPSHOT,
+    target: PANEL_TARGET,
+    resolution: reduced ? 1 : 1.15,
+    refraction: 0.012,
+    aberration: 0,
+    bevelDepth: 0.06,
+    bevelWidth: 0.2,
+    frost: 1.15,
+    shadow: true,
+    specular: false,
+    reveal: "none",
+    tilt: false,
+    magnify: 1.0,
   };
 }
 
@@ -65,10 +83,31 @@ function clearRenderer(): void {
 
 function shouldUseFallback(forceFallback: boolean): boolean {
   if (forceFallback) return true;
-  if (window.__miniPhoForceGlassFallback__) return true;
+  if (window.__miniPhoForceGlassFallback__ === true) return true;
   if (prefersReducedTransparency()) return true;
   if (!hasWebGLSupport()) return true;
   return false;
+}
+
+function collectInstances(
+  value: LiquidGLInstance | LiquidGLInstance[] | undefined,
+): LiquidGLInstance[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function mountGlass(mode: PerformanceMode): LiquidGLInstance[] {
+  const controls = document.querySelectorAll(CONTROL_TARGET);
+  const panels = document.querySelectorAll(PANEL_TARGET);
+  const instances: LiquidGLInstance[] = [];
+
+  if (controls.length > 0) {
+    instances.push(...collectInstances(liquidGL(controlOptions(mode))));
+  }
+  if (panels.length > 0) {
+    instances.push(...collectInstances(liquidGL(panelOptions(mode))));
+  }
+  return instances;
 }
 
 export function initLiquidGlass(
@@ -77,17 +116,16 @@ export function initLiquidGlass(
 ): GlassController {
   const useFallback = shouldUseFallback(forceFallback || mode === "fallback");
   let currentMode: PerformanceMode = useFallback ? "fallback" : mode;
-  let instances: LiquidGLInstance | LiquidGLInstance[] | undefined;
+  let instances: LiquidGLInstance[] = [];
 
   document.documentElement.classList.toggle("glass-fallback-mode", useFallback);
 
   if (!useFallback) {
     try {
       clearRenderer();
-      instances = liquidGL(baseOptions(currentMode));
-      if (!instances) {
-        currentMode = "fallback";
-        document.documentElement.classList.add("glass-fallback-mode");
+      instances = mountGlass(currentMode);
+      if (instances.length === 0 && document.querySelector(CONTROL_TARGET)) {
+        // Targets may not be mounted yet; keep mode and retry via refresh callers.
       }
     } catch {
       currentMode = "fallback";
@@ -105,17 +143,20 @@ export function initLiquidGlass(
     },
     refresh() {
       if (currentMode === "fallback") return;
-      const list = Array.isArray(instances)
-        ? instances
-        : instances
-          ? [instances]
-          : [];
-      for (const instance of list) {
+      if (instances.length === 0) {
+        try {
+          instances = mountGlass(currentMode);
+        } catch {
+          return;
+        }
+      }
+      for (const instance of instances) {
         instance.updateMetrics?.();
       }
     },
     destroy() {
       clearRenderer();
+      instances = [];
       document.documentElement.classList.remove("glass-fallback-mode");
     },
     setMode(next: PerformanceMode) {
@@ -128,11 +169,7 @@ export function initLiquidGlass(
       }
       document.documentElement.classList.remove("glass-fallback-mode");
       try {
-        instances = liquidGL(baseOptions(next));
-        if (!instances) {
-          currentMode = "fallback";
-          document.documentElement.classList.add("glass-fallback-mode");
-        }
+        instances = mountGlass(next);
       } catch {
         currentMode = "fallback";
         document.documentElement.classList.add("glass-fallback-mode");
