@@ -74,17 +74,8 @@ export function hasWebGLSupport(): boolean {
 }
 
 function countLiquidCanvases(): number {
-  return Array.from(document.querySelectorAll("canvas")).filter((node) => {
-    const canvas = node as HTMLCanvasElement;
-    if (canvas.hasAttribute("data-liquid-ignore")) return true;
-    try {
-      return Boolean(
-        canvas.getContext("webgl") || canvas.getContext("webgl2"),
-      );
-    } catch {
-      return false;
-    }
-  }).length;
+  const canvas = window.__liquidGLRenderer__?.canvas;
+  return canvas?.isConnected ? 1 : 0;
 }
 
 function collectInstances(
@@ -94,6 +85,7 @@ function collectInstances(
   return Array.isArray(value) ? value : [value];
 }
 
+// Private renderer fields below are version-locked to liquid-gl@2.0.1.
 function clearRenderer(): void {
   const renderer = window.__liquidGLRenderer__;
   if (!renderer) return;
@@ -144,16 +136,17 @@ function buildOptions(
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
     resolution: reduced ? 1.0 : mobile ? 1.25 : 1.5,
-    refraction: 0,
-    aberration: 0,
-    bevelDepth: 0.035,
-    bevelWidth: 0.119,
-    frost: 0.9,
+    // Active mode must retain nonzero refraction and low frost (not a frosted overlay).
+    refraction: reduced ? 0.012 : 0.018,
+    aberration: reduced ? 0.002 : 0.004,
+    bevelDepth: 0.085,
+    bevelWidth: 0.17,
+    frost: reduced ? 0.35 : 0.25,
     shadow: true,
     specular: !reduced,
     reveal: "none" as const,
     tilt: false,
-    magnify: 1,
+    magnify: reduced ? 1.008 : 1.012,
     on: {
       init: onInit,
     },
@@ -301,13 +294,13 @@ export function getFullLiquidGlassOptionConstraints() {
   return {
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
-    refraction: 0,
-    aberration: 0,
-    bevelDepth: 0.035,
-    bevelWidth: 0.119,
-    magnify: 1,
+    refraction: 0.018,
+    aberration: 0.004,
+    bevelDepth: 0.085,
+    bevelWidth: 0.17,
+    magnify: 1.012,
     specular: true,
-    frost: 0.9,
+    frost: 0.25,
     tilt: false,
   };
 }

@@ -23,15 +23,15 @@ Do not use `live: true` for the full call UI — Photon app cards open the site 
 
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Local Vite server |
-| `npm run build` | Typecheck + production build |
-| `npm test` | Vitest unit tests (no browser) |
+```bash
+npm run dev
+npm run lint
+npm test
+npm run build
+npm run check
+```
 
-## Manual verification
-
-Use your existing browser or Safari on iPhone against the Vite dev server. Do not install Playwright, Chromium, or other browser automation tools.
+This project uses Vitest for unit tests. Visual LiquidGL and icon rendering are checked manually in the target browser and Photon environment.
 
 ## Route
 

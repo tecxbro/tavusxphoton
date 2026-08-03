@@ -1,13 +1,13 @@
 import type { CSSProperties } from "react";
-import cameraOnUrl from "../assets/call-symbols/camera-on.svg?url";
-import cameraOffUrl from "../assets/call-symbols/camera-off.svg?url";
-import microphoneOnUrl from "../assets/call-symbols/microphone-on.svg?url";
-import microphoneOffUrl from "../assets/call-symbols/microphone-off.svg?url";
-import endCallUrl from "../assets/call-symbols/end-call.svg?url";
-import flipCameraUrl from "../assets/call-symbols/flip-camera.svg?url";
-import effectsUrl from "../assets/call-symbols/effects.svg?url";
-import contactChevronUrl from "../assets/call-symbols/contact-chevron.svg?url";
-import moreUrl from "../assets/call-symbols/more.svg?url";
+import cameraOnSvg from "../assets/call-symbols/camera-on.svg?raw";
+import cameraOffSvg from "../assets/call-symbols/camera-off.svg?raw";
+import microphoneOnSvg from "../assets/call-symbols/microphone-on.svg?raw";
+import microphoneOffSvg from "../assets/call-symbols/microphone-off.svg?raw";
+import endCallSvg from "../assets/call-symbols/end-call.svg?raw";
+import flipCameraSvg from "../assets/call-symbols/flip-camera.svg?raw";
+import effectsSvg from "../assets/call-symbols/effects.svg?raw";
+import contactChevronSvg from "../assets/call-symbols/contact-chevron.svg?raw";
+import moreSvg from "../assets/call-symbols/more.svg?raw";
 
 export type SymbolName =
   | "camera-on"
@@ -20,16 +20,17 @@ export type SymbolName =
   | "contact-chevron"
   | "more";
 
+// Local Apple-exported SVG files are rendered inline so they do not depend on CSS masks.
 const SYMBOL_ASSETS: Record<SymbolName, string> = {
-  "camera-on": cameraOnUrl,
-  "camera-off": cameraOffUrl,
-  "microphone-on": microphoneOnUrl,
-  "microphone-off": microphoneOffUrl,
-  "end-call": endCallUrl,
-  "flip-camera": flipCameraUrl,
-  effects: effectsUrl,
-  "contact-chevron": contactChevronUrl,
-  more: moreUrl,
+  "camera-on": cameraOnSvg,
+  "camera-off": cameraOffSvg,
+  "microphone-on": microphoneOnSvg,
+  "microphone-off": microphoneOffSvg,
+  "end-call": endCallSvg,
+  "flip-camera": flipCameraSvg,
+  effects: effectsSvg,
+  "contact-chevron": contactChevronSvg,
+  more: moreSvg,
 };
 
 interface SymbolIconProps {
@@ -50,14 +51,12 @@ export function SymbolIcon({
     <span
       aria-hidden="true"
       className={`symbol-icon ${className ?? ""}`.trim()}
-      style={
-        {
-          width: size,
-          height: size,
-          "--symbol-mask": `url("${asset}")`,
-          ...style,
-        } as CSSProperties
-      }
+      style={{
+        width: size,
+        height: size,
+        ...style,
+      }}
+      dangerouslySetInnerHTML={{ __html: asset }}
     />
   );
 }

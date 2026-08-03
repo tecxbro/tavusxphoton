@@ -16,14 +16,18 @@ export function ContactPill({
 
   return (
     <div
-      className="contact-pill liquidGL"
-      data-glass-shape="pill"
+      className="contact-pill"
       role="status"
       aria-live="polite"
       title={label}
       data-testid="contact-pill"
       data-connecting={connecting || undefined}
     >
+      <span
+        className="contact-pill__lens liquidGL"
+        data-glass-shape="pill"
+        aria-hidden="true"
+      />
       <span className="content contact-pill__content">
         {avatar ? (
           <img
