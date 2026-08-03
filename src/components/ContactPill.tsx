@@ -17,6 +17,7 @@ export function ContactPill({
   return (
     <div
       className="contact-pill liquidGL"
+      data-glass-shape="pill"
       role="status"
       aria-live="polite"
       title={label}

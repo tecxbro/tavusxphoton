@@ -29,7 +29,7 @@ export function CallControlRail({
         <span className="symbol-swap" data-off={!videoEnabled || undefined}>
           <SymbolIcon
             name={videoEnabled ? "video.fill" : "video.slash.fill"}
-            size={26}
+            size={30}
             className={videoEnabled ? "symbol-on" : "symbol-off"}
           />
         </span>
@@ -46,24 +46,32 @@ export function CallControlRail({
         <span className="symbol-swap" data-off={!audioEnabled || undefined}>
           <SymbolIcon
             name={audioEnabled ? "mic.fill" : "mic.slash.fill"}
-            size={26}
+            size={30}
             className={audioEnabled ? "symbol-on" : "symbol-off"}
           />
         </span>
       </CallControlButton>
 
-      <button
-        type="button"
-        className="control-btn control-btn--more liquidGL"
-        aria-label="More options unavailable in test build"
-        title="More options unavailable"
-        data-testid="more-button"
-        disabled
-      >
-        <span className="content">
-          <SymbolIcon name="ellipsis" size={26} />
-        </span>
-      </button>
+      <div className="glass-control glass-control--more">
+        <span
+          className="glass-control__lens liquidGL"
+          data-glass-shape="circle"
+          aria-hidden="true"
+        />
+
+        <button
+          type="button"
+          className="control-btn control-btn--more glass-control__action"
+          aria-label="More options"
+          title="More options"
+          data-testid="more-button"
+          disabled
+        >
+          <span className="content">
+            <SymbolIcon name="ellipsis" size={28} />
+          </span>
+        </button>
+      </div>
 
       <CallControlButton
         variant="end"
@@ -72,7 +80,7 @@ export function CallControlRail({
         onClick={onEnd}
         testId="end-call"
       >
-        <SymbolIcon name="xmark" size={28} />
+        <SymbolIcon name="xmark" size={32} />
       </CallControlButton>
     </div>
   );

@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:webkit": "playwright test --project=mobile-webkit",
-    "check": "npm run lint && npm test && npm run build"
+    "check": "npm run lint && npm test && npm run build",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@upstash/redis": "1.35.1",
@@ -36,6 +37,7 @@
     "happy-dom": "^20.11.1",
     "jsdom": "^27.0.1",
     "oxlint": "^1.75.0",
+    "patch-package": "8.0.0",
     "typescript": "~5.9.3",
     "vite": "^8.2.0",
     "vitest": "^3.2.7"

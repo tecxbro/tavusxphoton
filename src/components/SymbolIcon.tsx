@@ -1,4 +1,12 @@
-import type { ReactElement, ReactNode, SVGProps } from "react";
+import type { CSSProperties, ReactElement, ReactNode, SVGProps } from "react";
+import arrowTriangle2CirclepathCameraUrl from "../assets/sf-symbols/arrow.triangle.2.circlepath.camera.svg?url";
+import chevronRightUrl from "../assets/sf-symbols/chevron.right.svg?url";
+import ellipsisUrl from "../assets/sf-symbols/ellipsis.svg?url";
+import micFillUrl from "../assets/sf-symbols/mic.fill.svg?url";
+import micSlashFillUrl from "../assets/sf-symbols/mic.slash.fill.svg?url";
+import videoFillUrl from "../assets/sf-symbols/video.fill.svg?url";
+import videoSlashFillUrl from "../assets/sf-symbols/video.slash.fill.svg?url";
+import xmarkUrl from "../assets/sf-symbols/xmark.svg?url";
 
 export type SymbolName =
   | "video.fill"
@@ -7,9 +15,8 @@ export type SymbolName =
   | "mic.slash.fill"
   | "ellipsis"
   | "xmark"
-  | "camera.rotate"
+  | "arrow.triangle.2.circlepath.camera"
   | "chevron.right"
-  | "aperture"
   | "person.badge.plus"
   | "airpodspro"
   | "captions.bubble.fill"
@@ -43,64 +50,18 @@ function Svg({
   );
 }
 
-const icons: Record<SymbolName, (props: IconProps) => ReactElement> = {
-  "video.fill": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M3.5 7.75c0-1.24 1-2.25 2.25-2.25h7.5c1.24 0 2.25 1.01 2.25 2.25v8.5c0 1.24-1.01 2.25-2.25 2.25h-7.5A2.25 2.25 0 0 1 3.5 16.25v-8.5Z" />
-      <path d="M17.2 9.35 20.1 7.6c.55-.33 1.25.07 1.25.72v7.36c0 .65-.7 1.05-1.25.72l-2.9-1.75V9.35Z" />
-    </Svg>
-  ),
-  "video.slash.fill": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M3.22 3.22a.75.75 0 0 1 1.06 0l16.5 16.5a.75.75 0 1 1-1.06 1.06l-2.4-2.4c-.2.92-.99 1.62-1.97 1.62h-7.5A2.25 2.25 0 0 1 3.5 16.25v-8.5c0-.74.36-1.4.92-1.8L3.22 4.28a.75.75 0 0 1 0-1.06Z" />
-      <path
-        d="M8.1 5.5h5.15c1.24 0 2.25 1.01 2.25 2.25v.84l1.7-1.02 2.9-1.75c.55-.33 1.25.07 1.25.72v5.55l-2.7-2.7V9.35l-2.9 1.75v-.1l-8.4-8.4c.22-.07.45-.1.7-.1Z"
-        opacity="0.95"
-      />
-    </Svg>
-  ),
-  "mic.fill": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M12 2.75a3.5 3.5 0 0 0-3.5 3.5v5.5a3.5 3.5 0 1 0 7 0v-5.5A3.5 3.5 0 0 0 12 2.75Z" />
-      <path d="M6.75 11a.75.75 0 0 0-1.5 0 6.75 6.75 0 0 0 6 6.71v1.79H9.5a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-1.75v-1.79A6.75 6.75 0 0 0 18.75 11a.75.75 0 0 0-1.5 0 5.25 5.25 0 1 1-10.5 0Z" />
-    </Svg>
-  ),
-  "mic.slash.fill": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M3.22 3.22a.75.75 0 0 1 1.06 0l16.5 16.5a.75.75 0 1 1-1.06 1.06l-3.1-3.1A6.73 6.73 0 0 1 12.75 19.7v1.8H15a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1 0-1.5h2.25v-1.79a6.74 6.74 0 0 1-5.9-5.34l-.7-.7A.75.75 0 0 1 6 11c0 .2.02.4.04.59L3.22 9.77a.75.75 0 0 1 0-1.06l.5-.5Z" />
-      <path d="M15.5 11.62V6.25a3.5 3.5 0 0 0-6.64-1.53l6.64 6.9Z" />
-      <path d="M8.5 8.72v2.78a3.5 3.5 0 0 0 4.55 3.34L8.5 8.72Z" />
-    </Svg>
-  ),
-  ellipsis: (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <circle cx="5.5" cy="12" r="1.85" />
-      <circle cx="12" cy="12" r="1.85" />
-      <circle cx="18.5" cy="12" r="1.85" />
-    </Svg>
-  ),
-  xmark: (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M5.47 5.47a.75.75 0 0 1 1.06 0L12 10.94l5.47-5.47a.75.75 0 1 1 1.06 1.06L13.06 12l5.47 5.47a.75.75 0 1 1-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 0 1-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 0 1 0-1.06Z" />
-    </Svg>
-  ),
-  "camera.rotate": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M12.75 3.5a.75.75 0 0 0 0 1.5h2.3l.5.9H16a4.75 4.75 0 0 1 4.75 4.75v.6a.75.75 0 0 0 1.5 0v-.6A6.25 6.25 0 0 0 16 4.4h-.2l-.55-1a1.5 1.5 0 0 0-1.3-.75h-1.2Z" />
-      <path d="M11.25 20.5a.75.75 0 0 0 0-1.5h-2.3l-.5-.9H8A4.75 4.75 0 0 1 3.25 13.35v-.6a.75.75 0 0 0-1.5 0v.6A6.25 6.25 0 0 0 8 19.6h.2l.55 1c.27.48.78.75 1.3.75h1.2Z" />
-      <path d="M9.2 9.1a3.4 3.4 0 1 1 5.6 3.7l-.7.75h1.55a.75.75 0 0 1 0 1.5H12.3a.75.75 0 0 1-.75-.75v-3.4a.75.75 0 0 1 1.5 0v1.35A4.9 4.9 0 1 0 8.1 10.2a.75.75 0 1 1-1.1-1.02c.65-.7 1.55-1.08 2.2-1.08Z" />
-    </Svg>
-  ),
-  "chevron.right": (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M9.22 5.47a.75.75 0 0 1 1.06 0l6 6a.75.75 0 0 1 0 1.06l-6 6a.75.75 0 1 1-1.06-1.06L14.69 12 9.22 6.53a.75.75 0 0 1 0-1.06Z" />
-    </Svg>
-  ),
-  aperture: (props) => (
-    <Svg viewBox="0 0 24 24" {...props}>
-      <path d="M7.2 5.1c.9-1.05 2.05-1.35 3.55-.85 1.2.4 2.15 1.1 2.9 2.15.45.6.7 1.05.95 1.75h2.55c.9 0 1.35.95.8 1.6l-1.55 1.85c.15.55.25 1.1.25 1.7 0 1.55-.55 2.95-1.55 4.05-.95 1.05-2.25 1.65-3.8 1.65-1.4 0-2.55-.45-3.5-1.35C7 15.9 6.5 14.55 6.5 12.9c0-.7.1-1.35.3-1.95L5.2 8.95c-.5-.65-.05-1.6.85-1.6h2.4c.2-.7.45-1.45.75-2.25Zm2.05 1.35c-.25.55-.45 1.1-.6 1.65h2.35c-.35-.7-.85-1.25-1.45-1.55-.1-.05-.2-.1-.3-.1Zm-1.9 4.7c-.15.5-.25 1.05-.25 1.65 0 1.15.35 2.05.95 2.7.6.65 1.4.95 2.4.95 1.05 0 1.9-.4 2.55-1.1.55-.6.9-1.4.95-2.35H9.85l-.5-.85Zm6.05-1.55-1.05 1.25h2.15l-1.1-1.25Zm-5.35-1.55 1.15 1.55h2.35L12.9 8.05h-2.85Z" />
-    </Svg>
-  ),
+const MASKED_SYMBOLS: Partial<Record<SymbolName, string>> = {
+  "video.fill": videoFillUrl,
+  "video.slash.fill": videoSlashFillUrl,
+  "mic.fill": micFillUrl,
+  "mic.slash.fill": micSlashFillUrl,
+  ellipsis: ellipsisUrl,
+  xmark: xmarkUrl,
+  "arrow.triangle.2.circlepath.camera": arrowTriangle2CirclepathCameraUrl,
+  "chevron.right": chevronRightUrl,
+};
+
+const icons: Partial<Record<SymbolName, (props: IconProps) => ReactElement>> = {
   "person.badge.plus": (props) => (
     <Svg viewBox="0 0 24 24" {...props}>
       <path d="M9.5 3.75a3.75 3.75 0 1 1 0 7.5 3.75 3.75 0 0 1 0-7.5Z" />
@@ -151,17 +112,39 @@ const icons: Record<SymbolName, (props: IconProps) => ReactElement> = {
 interface SymbolIconProps extends IconProps {
   name: SymbolName;
   size?: number | string;
+  className?: string;
 }
 
 export function SymbolIcon({
   name,
   size = "1em",
   style,
+  className,
   ...props
 }: SymbolIconProps) {
+  const asset = MASKED_SYMBOLS[name];
+  if (asset) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`symbol-icon ${className ?? ""}`.trim()}
+        style={
+          {
+            width: size,
+            height: size,
+            "--symbol-mask": `url("${asset}")`,
+            ...style,
+          } as CSSProperties
+        }
+      />
+    );
+  }
+
   const Icon = icons[name];
+  if (!Icon) return null;
   return (
     <Icon
+      className={className}
       style={{ width: size, height: size, display: "block", ...style }}
       {...props}
     />

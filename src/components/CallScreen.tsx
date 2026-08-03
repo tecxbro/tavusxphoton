@@ -8,10 +8,10 @@ import {
   type CSSProperties,
   type PointerEvent,
 } from "react";
-import { ApertureButton } from "./ApertureButton";
 import { CallControlRail } from "./CallControlRail";
 import { CameraActivationFallback } from "./CameraActivationFallback";
 import { ContactPill } from "./ContactPill";
+import { EffectsButton } from "./EffectsButton";
 import { EndedScreen } from "./EndedScreen";
 import {
   LocalCameraSurface,
@@ -51,10 +51,9 @@ function localModeFor(
 
 function wantsDebugGlass(): boolean {
   if (typeof window === "undefined") return false;
-  if (import.meta.env.DEV) {
-    return new URLSearchParams(window.location.search).has("debugGlass");
-  }
-  return new URLSearchParams(window.location.search).get("debugGlass") === "1";
+  if (!import.meta.env.DEV) return false;
+
+  return new URLSearchParams(window.location.search).has("debugGlass");
 }
 
 export function CallScreen({ config }: CallScreenProps) {
@@ -429,7 +428,7 @@ export function CallScreen({ config }: CallScreenProps) {
           avatar={config.participantAvatar}
           connecting={phase === "connecting"}
         />
-        <ApertureButton />
+        <EffectsButton />
 
         <CallControlRail
           videoEnabled={videoEnabled}
@@ -445,21 +444,34 @@ export function CallScreen({ config }: CallScreenProps) {
           onEnd={endCall}
         />
 
-        <button
-          type="button"
-          className="waiting-flip-btn liquidGL control-btn"
-          aria-label="Switch camera"
-          title="Switch camera"
-          onClick={flipCamera}
-          data-testid="waiting-flip"
+        <div
+          className="waiting-flip-control"
           data-visible={showWaitingFlip}
           aria-hidden={!showWaitingFlip}
-          tabIndex={showWaitingFlip ? 0 : -1}
         >
-          <span className="content">
-            <SymbolIcon name="camera.rotate" size={22} />
-          </span>
-        </button>
+          <span
+            className="waiting-flip-control__lens liquidGL"
+            data-glass-shape="circle"
+            aria-hidden="true"
+          />
+
+          <button
+            type="button"
+            className="waiting-flip-btn control-btn waiting-flip-control__action"
+            aria-label="Switch camera"
+            title="Switch camera"
+            onClick={flipCamera}
+            data-testid="waiting-flip"
+            tabIndex={showWaitingFlip ? 0 : -1}
+          >
+            <span className="content">
+              <SymbolIcon
+                name="arrow.triangle.2.circlepath.camera"
+                size={26}
+              />
+            </span>
+          </button>
+        </div>
       </div>
 
       {showGlassDebug && debug ? (

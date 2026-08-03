@@ -25,10 +25,17 @@ export interface LiquidGlassDebugState {
   webglAvailable: boolean;
 }
 
+interface LiquidLensLike {
+  _shadowEl?: HTMLElement | null;
+  _mirror?: HTMLCanvasElement | null;
+  _sizeObs?: ResizeObserver | null;
+  _unbindTiltHandlers?: () => void;
+}
+
 interface RendererLike {
   _rafId?: number | null;
   canvas?: HTMLCanvasElement | null;
-  lenses?: unknown[];
+  lenses?: LiquidLensLike[];
 }
 
 declare global {
@@ -94,8 +101,17 @@ function clearRenderer(): void {
     cancelAnimationFrame(renderer._rafId);
     renderer._rafId = null;
   }
-  renderer.canvas?.remove();
+
+  for (const lens of renderer.lenses ?? []) {
+    lens._unbindTiltHandlers?.();
+    lens._sizeObs?.disconnect();
+    lens._shadowEl?.remove();
+    lens._mirror?.remove();
+  }
+
   renderer.lenses = [];
+  renderer.canvas?.remove();
+  document.getElementById("liquid-gl-dynamic-styles")?.remove();
   delete window.__liquidGLRenderer__;
 }
 
@@ -128,16 +144,16 @@ function buildOptions(
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
     resolution: reduced ? 1.0 : mobile ? 1.25 : 1.5,
-    refraction: 0.018,
-    aberration: 0.004,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    frost: 0.25,
+    refraction: 0,
+    aberration: 0,
+    bevelDepth: 0.035,
+    bevelWidth: 0.119,
+    frost: 0.9,
     shadow: true,
     specular: !reduced,
     reveal: "none" as const,
     tilt: false,
-    magnify: 1.012,
+    magnify: 1,
     on: {
       init: onInit,
     },
@@ -285,12 +301,13 @@ export function getFullLiquidGlassOptionConstraints() {
   return {
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
-    refraction: 0.018,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    magnify: 1.012,
+    refraction: 0,
+    aberration: 0,
+    bevelDepth: 0.035,
+    bevelWidth: 0.119,
+    magnify: 1,
     specular: true,
-    frost: 0.25,
+    frost: 0.9,
     tilt: false,
   };
 }

@@ -207,7 +207,7 @@
 .facetime-chrome {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: calc(var(--glass-z) + 1);
   pointer-events: none;
   transition:
     opacity var(--motion-chrome) ease,
@@ -244,11 +244,21 @@
 }
 
 .contact-pill__content {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 12px 6px 6px;
   pointer-events: none;
+}
+
+.contact-pill__name,
+.contact-pill__chevron,
+.contact-pill__avatar,
+.contact-pill__avatar-fallback {
+  position: relative;
+  z-index: 3;
 }
 
 .contact-pill__avatar,
@@ -288,7 +298,7 @@
   opacity: 0.85;
 }
 
-.aperture-btn {
+.effects-btn {
   position: absolute;
   top: calc(var(--safe-top) + 14px);
   right: calc(var(--safe-right) + 20px);
@@ -299,6 +309,23 @@
   place-items: center;
   color: var(--color-white);
   pointer-events: none;
+}
+
+.effects-btn__content {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.effects-btn__glyph {
+  display: block;
+  color: #fff;
+  font-family: var(--font-system);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 .control-rail {
@@ -327,17 +354,76 @@
     opacity 160ms ease;
 }
 
+.glass-control,
+.waiting-flip-control {
+  position: relative;
+  width: var(--control-rail);
+  height: var(--control-rail);
+  border-radius: 50%;
+}
+
+.glass-control__lens,
+.waiting-flip-control__lens {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.glass-control__action,
+.waiting-flip-control__action {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.glass-control--more {
+  width: var(--control-rail);
+  height: var(--control-rail);
+}
+
+.symbol-icon {
+  display: block;
+  flex: 0 0 auto;
+  background: currentColor;
+  -webkit-mask-image: var(--symbol-mask);
+  mask-image: var(--symbol-mask);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.control-btn .symbol-icon {
+  opacity: 1;
+}
+
 .control-btn:active {
   transform: scale(0.9);
 }
 
 .control-btn:disabled {
   cursor: default;
-  opacity: 0.72;
+}
+
+.control-btn--more:disabled {
+  opacity: 1;
 }
 
 .control-btn:disabled:active {
   transform: none;
+}
+
+.control-btn--camera,
+.control-btn--mic,
+.control-btn--end {
+  overflow: hidden;
 }
 
 .control-btn--camera {
@@ -372,24 +458,26 @@
   animation: symbol-swap var(--motion-chrome) var(--ease-out-expo);
 }
 
-.waiting-flip-btn {
+.waiting-flip-control {
   position: absolute;
   left: calc(var(--safe-left) + 22px);
   bottom: calc(var(--safe-bottom) + 38px);
   width: var(--control-waiting-flip);
   height: var(--control-waiting-flip);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--color-white);
   z-index: 30;
 }
 
-.waiting-flip-btn[data-visible="false"],
-.call-screen[data-phase="joining"] .waiting-flip-btn,
-.call-screen[data-phase="live"] .waiting-flip-btn,
-.call-screen[data-phase="ended"] .waiting-flip-btn,
-.call-screen[data-phase="bootstrapping"] .waiting-flip-btn {
+.waiting-flip-btn {
+  width: 100%;
+  height: 100%;
+  color: var(--color-white);
+}
+
+.waiting-flip-control[data-visible="false"],
+.call-screen[data-phase="joining"] .waiting-flip-control,
+.call-screen[data-phase="live"] .waiting-flip-control,
+.call-screen[data-phase="ended"] .waiting-flip-control,
+.call-screen[data-phase="bootstrapping"] .waiting-flip-control {
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
