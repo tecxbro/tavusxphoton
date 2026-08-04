@@ -1,24 +1,24 @@
 # Mini Pho
 
-FaceTime-style video-call UI prototype for Photon Spectrum inside iMessage.
+FaceTime-style video-call UI for Photon Spectrum inside iMessage, connected to
+Tavus CVI (Gary) over Daily.
 
 ## What is real vs mocked
 
 | Piece | Status |
 |-------|--------|
 | Local camera and microphone | Real — browser `getUserMedia` |
-| Remote video | Mock — same-origin asset (default `/videos/mock-agent.mp4`) |
+| Remote video / audio | Real — Tavus CVI via Daily |
 | Call phases / UI chrome | Real — client reducer and React UI |
 | LiquidGL call controls | Real — `liquid-gl@2.0.1` with CSS frosted fallback |
-| Pho answer / end / reset | Temporary test controller (`/pho-controller` + `/api/test-call/*`) |
-| Production RTC | Not implemented |
-| Production signaling | Not implemented |
+| Conversation create / end | Real — server `/api/tavus` (API key stays server-side) |
 
 ## Quick start
 
 ```bash
 npm ci
 cp .env.example .env.local
+# Fill TAVUS_API_KEY and TAVUS_PAL_ID
 npm run dev
 ```
 
@@ -26,13 +26,15 @@ Open [http://localhost:5173/call/demo](http://localhost:5173/call/demo).
 
 Use one Vite server on port `5173` — do not start multiple copies.
 
+Start with `TAVUS_TEST_MODE=false` for a live Gary join (start-the-server does
+this). When unset, Vite defaults to `true` so creates skip the PAL join.
+
 ## Routes
 
 | Path | Purpose |
 |------|---------|
 | `/` | Redirects to `/call/demo` |
-| `/call/:sessionId` | Call UI (`name`, `avatar`, `remoteVideo`, `selfAvatar` query params) |
-| `/pho-controller` | Temporary Pho test controller (requires client flag) |
+| `/call/:sessionId` | Call launcher + FaceTime UI (`name`, `avatar`, `selfAvatar` query params) |
 
 ## Environment variables
 
@@ -40,19 +42,18 @@ See `.env.example`. Summary:
 
 | Variable | Where | Purpose |
 |----------|-------|---------|
-| `VITE_ENABLE_PHO_TEST_CONTROLLER` | Client | Enable controller route and call-side polling |
-| `ENABLE_PHO_TEST_CONTROLLER` | Server / Vite middleware | Enable `/api/test-call/*` |
-| `TEST_CONTROLLER_SECRET` | Server only | Bearer secret for command writes — never `VITE_*` |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Server | Redis store for deployed controller |
-| `PHO_TEST_USE_MEMORY_STORE` | Server | `true` for local in-memory store |
+| `TAVUS_API_KEY` | Server only (`.env.local`) | Tavus REST auth — never `VITE_*` |
+| `TAVUS_PAL_ID` | Server only (`.env.local`) | Fixed PAL id for Gary |
+| `TAVUS_FACE_ID` | Server only (`.env.local`) | Optional face override |
+| `TAVUS_TEST_MODE` | Shell env / default | `true` skips PAL join; start-the-server runs with `false` |
 
-Full controller setup: [`docs/mini-pho-test-controller.md`](docs/mini-pho-test-controller.md).
+Full CVI notes: [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 
 ## npm commands
 
 | Command | Purpose |
 |---------|---------|
-| `npm run dev` | Vite on `5173` (includes local `/api/test-call` middleware) |
+| `npm run dev` | Vite on `5173` (includes local `/api/tavus` middleware) |
 | `npm run build` | Typecheck + production build |
 | `npm run preview` | Preview production build |
 | `npm run lint` | oxlint |
@@ -66,13 +67,12 @@ Full controller setup: [`docs/mini-pho-test-controller.md`](docs/mini-pho-test-c
 ```text
 src/
   main.tsx, App.tsx          # Bootstrap and routes
-  components/                # Call UI + Pho controller
-  hooks/                     # Media, drag, LiquidGL, Pho poll
-  lib/                       # Call state, LiquidGL, Pho client
-  contracts/                 # Shared Pho test types
-  styles/                    # Tokens and call/controller CSS
-api/                         # Vercel Functions for Pho test API
-scripts/phoTestApiPlugin.ts  # Vite middleware for the same API
+  components/                # Call UI + launcher
+  hooks/                     # Media, Daily/Tavus, drag, LiquidGL
+  lib/                       # Call state, LiquidGL, tavus helpers
+  styles/                    # Tokens and call/launcher CSS
+api/tavus.ts                 # Vercel adapter for Tavus helper
+scripts/tavusApiPlugin.ts    # Vite middleware for the same API
 patches/                     # liquid-gl@2.0.1 patch
 docs/                        # Subsystem guides
 ```
@@ -85,4 +85,4 @@ docs/                        # Subsystem guides
 | [`AGENTS.md`](AGENTS.md) | Instructions for coding agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local workflow and PR checklist |
 | [`docs/liquid-gl-verification.md`](docs/liquid-gl-verification.md) | LiquidGL manual verification |
-| [`docs/mini-pho-test-controller.md`](docs/mini-pho-test-controller.md) | Temporary Pho test controller |
+| [`docs/tavus-cvi.md`](docs/tavus-cvi.md) | Tavus CVI + Daily integration |

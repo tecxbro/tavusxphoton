@@ -1,4 +1,5 @@
 export type CallPhase =
+  | "idle"
   | "bootstrapping"
   | "ringing"
   | "connecting"
@@ -24,15 +25,13 @@ export interface CallConfig {
   sessionId: string;
   participantName: string;
   participantAvatar: string;
-  remoteVideo: string;
   selfAvatar?: string;
 }
 
 export const defaultCall: CallConfig = {
   sessionId: "demo",
-  participantName: "Pho",
+  participantName: "Gary",
   participantAvatar: "/avatars/pho.jpg",
-  remoteVideo: "/videos/mock-agent.mp4",
 };
 
 export const CONNECTING_MIN_MS = 700;
@@ -86,10 +85,6 @@ export function parseCallSearchParams(
       params.get("avatar"),
       defaultCall.participantAvatar,
     ),
-    remoteVideo: safeSameOriginAsset(
-      params.get("remoteVideo"),
-      defaultCall.remoteVideo,
-    ),
     ...(selfAvatar ? { selfAvatar } : {}),
   };
 }
@@ -111,11 +106,15 @@ export function formatDuration(totalSeconds: number): string {
 /** Allowed phase edges. CallScreen must dispatch through callReducer — do not set phases ad hoc. */
 export function canTransition(from: CallPhase, to: CallPhase): boolean {
   switch (from) {
+    case "idle":
+      return to === "bootstrapping";
     case "bootstrapping":
       return (
         to === "ringing" ||
         to === "permission-error" ||
-        to === "ended"
+        to === "ended" ||
+        to === "connection-error" ||
+        to === "idle"
       );
     case "ringing":
       return (
@@ -135,11 +134,11 @@ export function canTransition(from: CallPhase, to: CallPhase): boolean {
     case "live":
       return to === "ended" || to === "connection-error";
     case "ended":
-      return to === "bootstrapping" || to === "ringing";
+      return to === "idle" || to === "bootstrapping";
     case "permission-error":
-      return to === "bootstrapping" || to === "ringing";
+      return to === "idle" || to === "bootstrapping";
     case "connection-error":
-      return to === "bootstrapping" || to === "ringing" || to === "ended";
+      return to === "idle" || to === "bootstrapping" || to === "ended";
     default: {
       const _exhaustive: never = from;
       return _exhaustive;
@@ -148,10 +147,10 @@ export function canTransition(from: CallPhase, to: CallPhase): boolean {
 }
 
 export type CallAction =
-  | { type: "BOOTSTRAP" }
+  | { type: "START_CALL" }
   | { type: "PERMISSIONS_GRANTED" }
   | { type: "PERMISSIONS_DENIED" }
-  | { type: "PHO_ANSWERED" }
+  | { type: "PAL_JOINED" }
   | { type: "REMOTE_FRAME" }
   | { type: "JOIN_COMPLETE" }
   | { type: "CONNECTION_FAILED" }
@@ -162,23 +161,15 @@ export type CallAction =
 /** Pure phase machine. Illegal transitions are no-ops so async races cannot skip ahead. */
 export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
   switch (action.type) {
-    case "BOOTSTRAP":
-      if (
-        phase === "ended" ||
-        phase === "permission-error" ||
-        phase === "connection-error" ||
-        phase === "bootstrapping"
-      ) {
-        return "bootstrapping";
-      }
-      return phase;
+    case "START_CALL":
+      return canTransition(phase, "bootstrapping") ? "bootstrapping" : phase;
     case "PERMISSIONS_GRANTED":
       return canTransition(phase, "ringing") ? "ringing" : phase;
     case "PERMISSIONS_DENIED":
       return canTransition(phase, "permission-error")
         ? "permission-error"
         : phase;
-    case "PHO_ANSWERED":
+    case "PAL_JOINED":
       return canTransition(phase, "connecting") ? "connecting" : phase;
     case "REMOTE_FRAME":
       return canTransition(phase, "joining") ? "joining" : phase;
@@ -191,7 +182,7 @@ export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
     case "END":
       return canTransition(phase, "ended") ? "ended" : phase;
     case "RESTART":
-      return "bootstrapping";
+      return "idle";
     case "CLOSE":
       return "ended";
     default: {

@@ -9,6 +9,7 @@ import {
   type PointerEvent,
 } from "react";
 import { CallControlRail } from "./CallControlRail";
+import { CallLauncher } from "./CallLauncher";
 import { CameraActivationFallback } from "./CameraActivationFallback";
 import { ContactPill } from "./ContactPill";
 import { EffectsButton } from "./EffectsButton";
@@ -23,9 +24,8 @@ import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
 import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
 import { useLiquidGlass } from "../hooks/useLiquidGlass";
-import { useMediaDevices } from "../hooks/useMediaDevices";
-import { usePhoTestCommands } from "../hooks/usePhoTestCommands";
 import { useSafeViewport } from "../hooks/useSafeViewport";
+import { useTavusCall } from "../hooks/useTavusCall";
 import {
   JOIN_MORPH_MS,
   callReducer,
@@ -57,38 +57,41 @@ function wantsDebugGlass(): boolean {
 }
 
 export function CallScreen({ config }: CallScreenProps) {
-  const [phase, dispatch] = useReducer(callReducer, "bootstrapping");
+  const [phase, dispatch] = useReducer(callReducer, "idle");
   const [needsGesture, setNeedsGesture] = useState(false);
   const [backgroundReady, setBackgroundReady] = useState(false);
   const [showGlassDebug, setShowGlassDebug] = useState(false);
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  // Mirror of reducer phase for async media / Pho handlers that must not
+  // Mirror of reducer phase for async media handlers that must not
   // close over a stale render. Always update alongside dispatch.
   const phaseRef = useRef<CallPhase>(phase);
   const transitionTimers = useRef<number[]>([]);
-  // Strict Mode remounts effects once; gate the initial beginCall so we do
-  // not request media twice on first paint.
-  const bootstrapped = useRef(false);
   // Bumped on every beginCall / end so late media and timers ignore prior work.
   const attemptRef = useRef(0);
 
   phaseRef.current = phase;
 
   const {
-    stream,
+    startCall,
+    endCall: endTavusCall,
+    resetCall,
+    localStream,
+    remoteVideoStream,
+    remoteAudioStream,
     videoEnabled,
     audioEnabled,
     facingMode,
-    error: mediaError,
-    requestPermissions,
     toggleVideo,
     toggleAudio,
     flipCamera: flipMediaCamera,
-    stopAll,
-  } = useMediaDevices();
+    palJoined,
+    error: callError,
+    starting,
+  } = useTavusCall();
 
   const viewport = useSafeViewport();
   const {
@@ -125,13 +128,18 @@ export function CallScreen({ config }: CallScreenProps) {
     transitionTimers.current = [];
   }, []);
 
-  const clearRemoteVideo = useCallback(() => {
+  const clearRemoteMedia = useCallback(() => {
     const remote = remoteRef.current;
-    if (!remote) return;
-    remote.pause();
-    remote.removeAttribute("src");
-    remote.removeAttribute("data-revealed");
-    remote.load();
+    if (remote) {
+      remote.pause();
+      remote.srcObject = null;
+      remote.removeAttribute("data-revealed");
+    }
+    const remoteAudio = remoteAudioRef.current;
+    if (remoteAudio) {
+      remoteAudio.pause();
+      remoteAudio.srcObject = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -154,76 +162,84 @@ export function CallScreen({ config }: CallScreenProps) {
     attemptRef.current += 1;
     const attempt = attemptRef.current;
 
-    clearRemoteVideo();
+    clearRemoteMedia();
     setNeedsGesture(false);
     setBackgroundReady(false);
+    stopTimer();
+    resetTimer();
 
-    const prior = phaseRef.current;
-    if (isActiveCallPhase(prior) || prior === "ended") {
-      stopAll();
-      stopTimer();
-    }
-
-    // Always restart explicitly — do not transit through ended during reset.
-    dispatch({ type: "RESTART" });
+    dispatch({ type: "START_CALL" });
     phaseRef.current = "bootstrapping";
 
-    const nextStream = await requestPermissions();
+    await startCall();
     if (attempt !== attemptRef.current) return;
 
-    if (!nextStream) {
-      const message = mediaError ?? "";
-      if (!/NotAllowedError|Permission denied|Permission/i.test(message)) {
-        setNeedsGesture(true);
-      }
-      dispatch({ type: "PERMISSIONS_DENIED" });
-      phaseRef.current = "permission-error";
-      return;
-    }
-
-    resetTimer();
-    dispatch({ type: "PERMISSIONS_GRANTED" });
-    phaseRef.current = "ringing";
+    // startCall owns permission + Tavus create. Infer outcome from streams/error
+    // via the effects below and the hook state at completion.
   }, [
-    clearRemoteVideo,
+    clearRemoteMedia,
     clearTransitionTimers,
-    mediaError,
-    requestPermissions,
     resetTimer,
-    stopAll,
+    startCall,
     stopTimer,
   ]);
 
-  const endCall = useCallback(() => {
+  const handleEndCall = useCallback(() => {
     clearTransitionTimers();
-    stopAll();
-    clearRemoteVideo();
+    clearRemoteMedia();
     stopTimer();
     dispatch({ type: "END" });
     phaseRef.current = "ended";
-  }, [clearRemoteVideo, clearTransitionTimers, stopAll, stopTimer]);
+    void endTavusCall();
+  }, [clearRemoteMedia, clearTransitionTimers, endTavusCall, stopTimer]);
+
+  // Advance from bootstrapping as soon as local media is ready so the ringing
+  // screen stays visible while Tavus create / Daily join continue.
+  useEffect(() => {
+    if (phase !== "bootstrapping") return;
+
+    if (localStream) {
+      dispatch({ type: "PERMISSIONS_GRANTED" });
+      phaseRef.current = "ringing";
+      setNeedsGesture(false);
+      return;
+    }
+
+    if (!starting && callError) {
+      const message = callError;
+      if (/NotAllowedError|Permission denied|Permission/i.test(message)) {
+        dispatch({ type: "PERMISSIONS_DENIED" });
+        phaseRef.current = "permission-error";
+        return;
+      }
+      dispatch({ type: "CONNECTION_FAILED" });
+      phaseRef.current = "connection-error";
+    }
+  }, [callError, localStream, phase, starting]);
 
   useEffect(() => {
-    if (bootstrapped.current) return;
-    bootstrapped.current = true;
-    void beginCall();
-  }, [beginCall]);
+    if (!palJoined) return;
+    if (phaseRef.current !== "ringing") return;
+    dispatch({ type: "PAL_JOINED" });
+    phaseRef.current = "connecting";
+  }, [palJoined]);
 
-  usePhoTestCommands(config.sessionId, {
-    onAnswer: () => {
-      if (phaseRef.current === "ringing") {
-        dispatch({ type: "PHO_ANSWERED" });
-        phaseRef.current = "connecting";
-      }
-    },
-    onEnd: () => {
-      endCall();
-    },
-    onReset: () => {
-      void beginCall();
-    },
-    getPhase: () => phaseRef.current,
-  });
+  useEffect(() => {
+    if (!callError) return;
+    if (
+      phaseRef.current === "ringing" ||
+      phaseRef.current === "connecting" ||
+      phaseRef.current === "joining" ||
+      phaseRef.current === "live"
+    ) {
+      clearTransitionTimers();
+      clearRemoteMedia();
+      stopTimer();
+      dispatch({ type: "CONNECTION_FAILED" });
+      phaseRef.current = "connection-error";
+      void endTavusCall();
+    }
+  }, [callError, clearRemoteMedia, clearTransitionTimers, endTavusCall, stopTimer]);
 
   const showRemote =
     phase === "connecting" || phase === "joining" || phase === "live";
@@ -231,31 +247,36 @@ export function CallScreen({ config }: CallScreenProps) {
   useEffect(() => {
     const remote = remoteRef.current;
     if (!remote) return;
-    const attempt = attemptRef.current;
 
-    if (!showRemote) {
-      if (remote.getAttribute("src")) {
-        clearRemoteVideo();
+    if (!showRemote || !remoteVideoStream) {
+      if (remote.srcObject) {
+        remote.srcObject = null;
       }
       return;
     }
 
-    if (remote.getAttribute("src") !== config.remoteVideo) {
-      remote.setAttribute("src", config.remoteVideo);
-      remote.load();
+    if (remote.srcObject !== remoteVideoStream) {
+      remote.srcObject = remoteVideoStream;
       void remote.play().catch(() => undefined);
     }
+  }, [remoteVideoStream, showRemote]);
 
-    const onError = () => {
-      if (attempt !== attemptRef.current) return;
-      dispatch({ type: "CONNECTION_FAILED" });
-      phaseRef.current = "connection-error";
-    };
-    remote.addEventListener("error", onError);
-    return () => {
-      remote.removeEventListener("error", onError);
-    };
-  }, [clearRemoteVideo, config.remoteVideo, showRemote]);
+  useEffect(() => {
+    const remoteAudio = remoteAudioRef.current;
+    if (!remoteAudio) return;
+
+    if (!showRemote || !remoteAudioStream) {
+      if (remoteAudio.srcObject) {
+        remoteAudio.srcObject = null;
+      }
+      return;
+    }
+
+    if (remoteAudio.srcObject !== remoteAudioStream) {
+      remoteAudio.srcObject = remoteAudioStream;
+      void remoteAudio.play().catch(() => undefined);
+    }
+  }, [remoteAudioStream, showRemote]);
 
   useFirstVideoFrame(remoteRef, phase === "connecting", () => {
     if (phaseRef.current !== "connecting") return;
@@ -281,9 +302,6 @@ export function CallScreen({ config }: CallScreenProps) {
     };
   }, [clearTransitionTimers, phase]);
 
-  // LiquidGL initializes only after real visual content exists: either the
-  // first presented camera frame (requestVideoFrameCallback with fallback),
-  // or a painted camera-off placeholder (double rAF after commit).
   const showLocal = isActiveCallPhase(phase);
 
   useEffect(() => {
@@ -330,9 +348,6 @@ export function CallScreen({ config }: CallScreenProps) {
   const showWaitingFlip = phase === "ringing" || phase === "connecting";
   const showLiveExtras = phase === "joining" || phase === "live";
 
-  // The flip capsule lives in the chrome layer (above the LiquidGL canvas)
-  // and tracks the self-view rect. It hides during drags and morphs, then
-  // reappears at the settled position.
   const [selfRect, setSelfRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
@@ -389,6 +404,17 @@ export function CallScreen({ config }: CallScreenProps) {
     ? window.__miniPhoLiquidGlassDebug__
     : null;
 
+  if (phase === "idle") {
+    return (
+      <CallLauncher
+        starting={starting}
+        onCall={() => {
+          void beginCall();
+        }}
+      />
+    );
+  }
+
   return (
     <main
       ref={screenRef}
@@ -407,10 +433,7 @@ export function CallScreen({ config }: CallScreenProps) {
               className="remote-video-surface"
               autoPlay
               playsInline
-              loop
               muted
-              preload="auto"
-              crossOrigin="anonymous"
               data-active={showRemote ? "true" : undefined}
               data-revealed={
                 phase === "joining" || phase === "live" || undefined
@@ -421,16 +444,19 @@ export function CallScreen({ config }: CallScreenProps) {
               data-testid="remote-video"
               aria-hidden={!showRemote}
             />
+            <audio
+              ref={remoteAudioRef}
+              autoPlay
+              playsInline
+              data-testid="remote-audio"
+            />
           </div>
           <div className="video-overlay" />
         </div>
 
-        {/* Keep the local surface mounted for the whole active call so camera
-            off only disables the track / shows a placeholder — LiquidGL still
-            snapshots a stable video node instead of remounting. */}
         {showLocal && (
           <LocalCameraSurface
-            stream={stream}
+            stream={localStream}
             videoEnabled={videoEnabled}
             mirrored={facingMode === "user"}
             mode={mode}
@@ -483,7 +509,7 @@ export function CallScreen({ config }: CallScreenProps) {
             bumpControls();
             toggleAudio();
           }}
-          onEnd={endCall}
+          onEnd={handleEndCall}
         />
 
         <button
@@ -548,8 +574,10 @@ export function CallScreen({ config }: CallScreenProps) {
         <EndedScreen
           duration={timerFormatted}
           onCallAgain={() => {
-            resetTimer();
-            void beginCall();
+            void (async () => {
+              await resetCall();
+              void beginCall();
+            })();
           }}
           onClose={() => {
             resetTimer();
@@ -593,7 +621,7 @@ export function CallScreen({ config }: CallScreenProps) {
         <section className="error-screen" data-testid="connection-error">
           <h1 className="error-screen__title">Connection Failed</h1>
           <p className="error-screen__body">
-            Could not load the remote video. Try again.
+            Could not connect to Gary. Try again.
           </p>
           <div className="btn-row">
             <button
