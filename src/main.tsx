@@ -6,7 +6,7 @@ import "./styles/tokens.css";
 import "./styles/global.css";
 import "./styles/glass.css";
 import "./styles/call.css";
-import "./styles/controller.css";
+import "./styles/launcher.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

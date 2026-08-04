@@ -1,13 +1,5 @@
 /// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-  readonly VITE_ENABLE_PHO_TEST_CONTROLLER?: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
-
 interface MiniPhoLiquidGlassDebug {
   packageVersion: "2.0.1";
   mode: string;

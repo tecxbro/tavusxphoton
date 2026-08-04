@@ -7,7 +7,8 @@ npm ci
 cp .env.example .env.local
 ```
 
-Edit `.env.local` as needed. Variable meanings: [`.env.example`](.env.example) and [`docs/mini-pho-test-controller.md`](docs/mini-pho-test-controller.md).
+Edit `.env.local` with `TAVUS_API_KEY` and `TAVUS_PAL_ID`. Variable meanings:
+[`.env.example`](.env.example) and [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 
 ## Development server
 
@@ -20,7 +21,6 @@ One Vite instance on port `5173`. Do not start a second copy.
 ### Local routes
 
 - Call UI: [http://localhost:5173/call/demo](http://localhost:5173/call/demo)
-- Pho controller: [http://localhost:5173/pho-controller](http://localhost:5173/pho-controller)
 
 Architecture and ownership: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -40,7 +40,7 @@ Required when changing:
 
 - LiquidGL init, fallback, or stacking → follow [`docs/liquid-gl-verification.md`](docs/liquid-gl-verification.md)
 - Call chrome, self-view drag, camera flip, or phase transitions → exercise `/call/demo` in the target browser / Photon webview
-- Pho controller polling, ack, or API → exercise call + `/pho-controller` together ([guide](docs/mini-pho-test-controller.md))
+- Tavus create / join / end → follow [`docs/tavus-cvi.md`](docs/tavus-cvi.md) with `TAVUS_TEST_MODE=false` for a live PAL
 
 ## Pull request checklist
 
@@ -50,4 +50,4 @@ Required when changing:
 - [ ] Apple call-symbol SVGs not renamed or replaced
 - [ ] LiquidGL still pinned/patched if glass code changed
 - [ ] Docs updated if routes, phases, env vars, ownership, or behavior changed
-- [ ] Manual verification done for UI / glass / controller changes above
+- [ ] Manual verification done for UI / glass / Tavus changes above

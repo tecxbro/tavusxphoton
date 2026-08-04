@@ -11,28 +11,31 @@ import {
 import { objectCoverSourceRect } from "../../lib/objectCover";
 
 describe("call state transitions", () => {
-  it("moves through the happy path", () => {
-    let phase = callReducer("bootstrapping", { type: "BOOTSTRAP" });
+  it("moves through the happy path from idle", () => {
+    let phase = callReducer("idle", { type: "START_CALL" });
+    expect(phase).toBe("bootstrapping");
     phase = callReducer(phase, { type: "PERMISSIONS_GRANTED" });
     expect(phase).toBe("ringing");
-    phase = callReducer(phase, { type: "PHO_ANSWERED" });
+    phase = callReducer(phase, { type: "PAL_JOINED" });
     expect(phase).toBe("connecting");
     phase = callReducer(phase, { type: "REMOTE_FRAME" });
     expect(phase).toBe("joining");
     phase = callReducer(phase, { type: "JOIN_COMPLETE" });
     expect(phase).toBe("live");
+    phase = callReducer(phase, { type: "END" });
+    expect(phase).toBe("ended");
   });
 
   it("ignores REMOTE_FRAME during ringing", () => {
     expect(callReducer("ringing", { type: "REMOTE_FRAME" })).toBe("ringing");
   });
 
-  it("ignores PHO_ANSWERED after ringing", () => {
-    expect(callReducer("connecting", { type: "PHO_ANSWERED" })).toBe(
+  it("ignores PAL_JOINED after ringing", () => {
+    expect(callReducer("connecting", { type: "PAL_JOINED" })).toBe(
       "connecting",
     );
-    expect(callReducer("joining", { type: "PHO_ANSWERED" })).toBe("joining");
-    expect(callReducer("live", { type: "PHO_ANSWERED" })).toBe("live");
+    expect(callReducer("joining", { type: "PAL_JOINED" })).toBe("joining");
+    expect(callReducer("live", { type: "PAL_JOINED" })).toBe("live");
   });
 
   it("allows ending from ringing", () => {
@@ -48,7 +51,13 @@ describe("call state transitions", () => {
     expect(canTransition("permission-error", "bootstrapping")).toBe(true);
   });
 
+  it("restarts to idle", () => {
+    expect(callReducer("ended", { type: "RESTART" })).toBe("idle");
+    expect(callReducer("permission-error", { type: "RESTART" })).toBe("idle");
+  });
+
   it("marks ringing through live as active", () => {
+    expect(isActiveCallPhase("idle")).toBe(false);
     expect(isActiveCallPhase("ringing")).toBe(true);
     expect(isActiveCallPhase("connecting")).toBe(true);
     expect(isActiveCallPhase("joining")).toBe(true);
@@ -71,10 +80,10 @@ describe("call timer formatting", () => {
 });
 
 describe("query parameter parsing", () => {
-  it("applies defaults and overrides", () => {
+  it("applies defaults and overrides without remoteVideo", () => {
     expect(parseCallSearchParams("demo", "")).toMatchObject({
       sessionId: "demo",
-      participantName: "Pho",
+      participantName: "Gary",
     });
     expect(
       parseCallSearchParams(
@@ -85,7 +94,6 @@ describe("query parameter parsing", () => {
       sessionId: "abc",
       participantName: "Nova",
       participantAvatar: "/a.jpg",
-      remoteVideo: "/v.mp4",
       selfAvatar: "/me.jpg",
     });
   });
@@ -97,22 +105,22 @@ describe("query parameter parsing", () => {
 
   it("trims and caps names at 80 characters", () => {
     const long = `  ${"A".repeat(100)}  `;
-    expect(parseCallSearchParams("demo", `name=${encodeURIComponent(long)}`).participantName).toHaveLength(
-      80,
-    );
+    expect(
+      parseCallSearchParams("demo", `name=${encodeURIComponent(long)}`)
+        .participantName,
+    ).toHaveLength(80);
   });
 
-  it("rejects cross-origin avatar and remote video values", () => {
+  it("rejects cross-origin avatar values", () => {
     const config = parseCallSearchParams(
       "demo",
-      "avatar=https://evil.example/a.jpg&remoteVideo=https://evil.example/v.mp4",
+      "avatar=https://evil.example/a.jpg",
     );
     expect(config.participantAvatar).toBe("/avatars/pho.jpg");
-    expect(config.remoteVideo).toBe("/videos/mock-agent.mp4");
   });
 
   it("builds initials", () => {
-    expect(getInitials("Pho")).toBe("P");
+    expect(getInitials("Gary")).toBe("G");
     expect(getInitials("Ada Lovelace")).toBe("AL");
   });
 });
