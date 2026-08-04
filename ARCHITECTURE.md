@@ -119,6 +119,10 @@ During active phases the local `<video>` stays in the LiquidGL snapshot tree eve
 
 `useDraggableSelfView` stores a corner name in `sessionStorage` (`mini-pho-self-view`), not pixel coordinates. Pixels are recomputed from layout, chrome visibility, and viewport so rotation and resize stay correct.
 
+### Call audio (FaceTime SFX)
+
+Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phases to public WAVs under `/audio/facetime/`. Wired from both `CallScreen` and `PhoCallScreen`: `ringing` loops until remote join (`connecting` plays connected once), `ended` plays once per call, mic mute/unmute one-shots follow `audioEnabled`.
+
 ### LiquidGL pin and patch
 
 `liquid-gl@2.0.1` is exact-pinned; `patches/liquid-gl+2.0.1.patch` is applied via `patch-package`. Private renderer fields and stale-video erase logic are version-locked. Exactly one shared WebGL canvas is adopted into `.liquid-canvas-layer`. CSS frosted fallback runs when WebGL is missing, init fails, reduced transparency is preferred, or `__miniPhoForceGlassFallback__` is set. See `docs/liquid-gl-verification.md`.
@@ -145,6 +149,7 @@ Also unused at runtime: `src/lib/photonAppCard.ts` (helper only). `More` in the 
 |------|-------|
 | Phases / config parsing | `src/tests/unit/callState.test.ts` |
 | Media / auto-hide / timer | `src/tests/unit/hooks.test.ts` |
+| Call audio (FaceTime SFX) | `src/tests/unit/callAudio.test.ts` |
 | Tavus + Daily hook | `src/tests/unit/useTavusCall.test.tsx` |
 | LiquidGL controller | `src/tests/unit/liquidGlass.test.ts`, `useLiquidGlass.test.tsx` |
 | Call chrome / symbols | `src/tests/unit/callControls.test.tsx`, `symbolIcon.test.tsx` |

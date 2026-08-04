@@ -20,6 +20,7 @@ import {
 } from "./LocalCameraSurface";
 import { SymbolIcon } from "./SymbolIcon";
 import { useAutoHideControls } from "../hooks/useAutoHideControls";
+import { useCallAudio } from "../hooks/useCallAudio";
 import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
 import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
@@ -92,6 +93,8 @@ export function CallScreen({ config }: CallScreenProps) {
     error: callError,
     starting,
   } = useTavusCall();
+
+  useCallAudio(phase, audioEnabled);
 
   const viewport = useSafeViewport();
   const {
