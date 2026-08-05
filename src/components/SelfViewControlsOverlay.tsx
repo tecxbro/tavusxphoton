@@ -1,32 +1,30 @@
-import { useRef, type CSSProperties } from "react";
-import { useLayoutMorph } from "../hooks/useLayoutMorph";
+import type { CSSProperties, RefObject } from "react";
 import type { LocalCameraMode } from "./LocalCameraSurface";
 import { SymbolIcon } from "./SymbolIcon";
 
 interface SelfViewControlsOverlayProps {
   mode: LocalCameraMode;
   style?: CSSProperties;
-  morphDurationMs: number;
+  /** Forwarded to the moving root — CallScreen owns the shared FLIP morph. */
+  overlayRef: RefObject<HTMLDivElement | null>;
   flipVisible: boolean;
   flipDisabled?: boolean;
   onFlip: () => void;
 }
 
 /**
- * Transparent overlay that shares the self-view's geometry and FLIP morph so
- * the in-PIP Flip pill tracks the surface without DOMRect snapshots.
+ * Transparent overlay that shares the self-view's geometry. CallScreen drives
+ * one shared FLIP morph with the local camera surface as primary and this
+ * overlay as follower (kept outside #liquid-gl-snapshot).
  */
 export function SelfViewControlsOverlay({
   mode,
   style,
-  morphDurationMs,
+  overlayRef,
   flipVisible,
   flipDisabled = false,
   onFlip,
 }: SelfViewControlsOverlayProps) {
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  useLayoutMorph(overlayRef, mode, morphDurationMs);
-
   return (
     <div
       ref={overlayRef}

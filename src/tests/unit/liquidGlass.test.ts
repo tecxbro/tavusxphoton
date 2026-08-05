@@ -275,100 +275,26 @@ describe("liquidGlass", () => {
     vi.useRealTimers();
   });
 
-  it("erases stale video regions from the glass texture on camera off", () => {
+  it("forces renderer dynamic-video sync and one lens-metric pass without a snapshot", () => {
     mockActiveRenderer();
     const controller = createLiquidGlassController();
 
-    const stage = document.querySelector<HTMLElement>("#liquid-gl-snapshot");
-    expect(stage).toBeTruthy();
-    const live = document.createElement("video");
-    const off = document.createElement("video");
-    off.setAttribute("data-liquid-ignore", "");
-    stage!.append(live, off);
-
-    for (const vid of [live, off]) {
-      Object.defineProperty(vid, "readyState", { value: 4, configurable: true });
-    }
-    const stageRect = {
-      left: 0,
-      top: 0,
-      right: 390,
-      bottom: 844,
-      width: 390,
-      height: 844,
-    } as DOMRect;
-    vi.spyOn(stage!, "getBoundingClientRect").mockReturnValue(stageRect);
-    vi.spyOn(live, "getBoundingClientRect").mockReturnValue(stageRect);
-    vi.spyOn(off, "getBoundingClientRect").mockReturnValue({
-      left: 250,
-      top: 600,
-      right: 370,
-      bottom: 800,
-      width: 120,
-      height: 200,
-    } as DOMRect);
-
-    const drawImage = vi.fn();
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      ((type: string) => {
-        if (type === "2d") {
-          return { drawImage } as unknown as CanvasRenderingContext2D;
-        }
-        if (
-          type === "webgl" ||
-          type === "webgl2" ||
-          type === "experimental-webgl"
-        ) {
-          return {} as WebGLRenderingContext;
-        }
-        return null;
-      }) as typeof HTMLCanvasElement.prototype.getContext,
-    );
-
-    const texSubImage2D = vi.fn();
-    const bindTexture = vi.fn();
-    const gl = {
-      bindTexture,
-      texSubImage2D,
-      TEXTURE_2D: 0x0de1,
-      RGBA: 0x1908,
-      UNSIGNED_BYTE: 0x1401,
-    } as unknown as WebGLRenderingContext;
-
-    const staticSnapshotCanvas = document.createElement("canvas");
-    staticSnapshotCanvas.width = 780;
-    staticSnapshotCanvas.height = 1688;
-
+    const sync = vi.fn();
     const renderer = window.__liquidGLRenderer__;
     expect(renderer).toBeTruthy();
-    renderer!.gl = gl;
-    renderer!.texture = {} as WebGLTexture;
-    renderer!.staticSnapshotCanvas = staticSnapshotCanvas;
-    renderer!.snapshotTarget = stage!;
-    renderer!.scaleFactor = 2;
-    renderer!._videoFrameState = new WeakMap();
+    renderer!._syncDynamicVideos = sync;
 
-    controller.syncVideoRegions();
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    expect(updateMetrics).toBeTruthy();
+    updateMetrics!.mockClear();
 
-    // Only the ignored (camera-off) video region is erased; the live video
-    // keeps its per-frame blits.
-    expect(bindTexture).toHaveBeenCalledTimes(1);
-    expect(texSubImage2D).toHaveBeenCalledTimes(1);
-    const call = texSubImage2D.mock.calls[0]!;
-    expect(call[2]).toBe(500);
-    expect(call[3]).toBe(1200);
-    expect(drawImage).toHaveBeenCalledWith(
-      staticSnapshotCanvas,
-      500,
-      1200,
-      240,
-      400,
-      0,
-      0,
-      240,
-      400,
-    );
-    expect(renderer!._videoNodes?.length).toBe(2);
+    controller.syncVideoLayout();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
     controller.destroy();
   });
 

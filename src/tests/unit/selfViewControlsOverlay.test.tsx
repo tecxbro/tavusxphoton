@@ -1,18 +1,16 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
+import { describe, expect, it } from "vitest";
 import { SelfViewControlsOverlay } from "../../components/SelfViewControlsOverlay";
 import type { LocalCameraMode } from "../../components/LocalCameraSurface";
 
-vi.mock("../../hooks/useLayoutMorph", () => ({
-  useLayoutMorph: vi.fn(),
-}));
-
 describe("SelfViewControlsOverlay", () => {
   it("stays mounted and measurable in fullscreen with the Flip pill hidden", () => {
+    const overlayRef = createRef<HTMLDivElement>();
     const { getByTestId, queryByTestId } = render(
       <SelfViewControlsOverlay
         mode="fullscreen"
-        morphDurationMs={200}
+        overlayRef={overlayRef}
         flipVisible={false}
         onFlip={() => undefined}
       />,
@@ -20,6 +18,7 @@ describe("SelfViewControlsOverlay", () => {
 
     const overlay = getByTestId("self-view-controls-overlay");
     expect(overlay).toBeTruthy();
+    expect(overlayRef.current).toBe(overlay);
     expect(overlay.getAttribute("data-mode")).toBe("fullscreen");
     expect(overlay.getBoundingClientRect).toBeTypeOf("function");
 
@@ -34,11 +33,12 @@ describe("SelfViewControlsOverlay", () => {
     "fullscreen",
   ] as LocalCameraMode[])("receives data-mode=%s without DOMRect inline coords", (mode) => {
     const style = { top: 100, left: 40, right: "auto" as const };
+    const overlayRef = createRef<HTMLDivElement>();
     const { getByTestId } = render(
       <SelfViewControlsOverlay
         mode={mode}
         style={style}
-        morphDurationMs={180}
+        overlayRef={overlayRef}
         flipVisible={mode === "expanded"}
         onFlip={() => undefined}
       />,
@@ -56,10 +56,11 @@ describe("SelfViewControlsOverlay", () => {
   });
 
   it("anchors the Flip pill with a 13px symbol", () => {
+    const overlayRef = createRef<HTMLDivElement>();
     const { getByTestId } = render(
       <SelfViewControlsOverlay
         mode="expanded"
-        morphDurationMs={180}
+        overlayRef={overlayRef}
         flipVisible
         onFlip={() => undefined}
       />,
@@ -67,5 +68,18 @@ describe("SelfViewControlsOverlay", () => {
     const flip = getByTestId("self-flip");
     const symbol = flip.querySelector(".symbol-icon") as HTMLElement;
     expect(symbol.style.height).toBe("13px");
+  });
+
+  it("forwards overlayRef to the moving root element", () => {
+    const overlayRef = createRef<HTMLDivElement>();
+    const { getByTestId } = render(
+      <SelfViewControlsOverlay
+        mode="expanded"
+        overlayRef={overlayRef}
+        flipVisible
+        onFlip={() => undefined}
+      />,
+    );
+    expect(overlayRef.current).toBe(getByTestId("self-view-controls-overlay"));
   });
 });

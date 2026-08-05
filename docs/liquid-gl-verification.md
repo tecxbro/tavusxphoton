@@ -118,6 +118,20 @@ WebGL: available
 
 It is marked `data-liquid-ignore` and must not be used alone as proof — also check the WebGL canvas and `window.__miniPhoLiquidGlassDebug__`.
 
+## Dynamic video path (patched)
+
+The `liquid-gl@2.0.1` patch (`patches/liquid-gl+2.0.1.patch`) changes how live `<video>` elements are composited into the shared texture:
+
+- **Automatic rescan** — each `_syncDynamicVideos()` pass rescans `snapshotTarget.querySelectorAll("video")` without filtering ignored, hidden, disabled, or not-ready videos. Newly added or newly activated videos are discovered without application-layer help.
+- **One shared canvas** — videos are drawn into the single renderer texture / canvas (not a second LiquidGL instance).
+- **Renderer-owned stale cleanup** — `_lastVideoDestinations` stores each video’s last successfully drawn **clipped** texture rectangle. Before any redraw, Pass 1 restores previous destinations from `staticSnapshotCanvas` when geometry changes, a video becomes ignored / not ready / ineligible, is removed, or loses valid geometry. Restored regions become dirty rectangles that invalidate otherwise unchanged overlapping videos (Pass 2).
+- **Successful-draw gating** — `_videoFrameState` and `_lastVideoDestinations` update only after WebGL blit or canvas fallback upload succeeds.
+- **CSS opacity** — effective computed opacity is part of the dynamic-video cache key. Opacity below `1` forces the compositing path (not opaque blit) so glass follows the visible DOM fade (e.g. `.remote-video-surface` reveal). Do not remove that DOM fade when changing this path.
+- **Not a layout animation tracker** — LiquidGL does **not** automatically sample arbitrary CSS layout animation frames. Geometry is read each sync/render tick; continuous layout animation still needs explicit synchronization (refresh / recapture) when the DOM moves without a video frame or eligibility change.
+- **Snapshot / destroy** — a complete `captureSnapshot()` texture replacement and renderer `destroy()` clear destination, dirty-region, and frame-tracking state.
+
+App code may call `syncVideoLayout()` → `_syncDynamicVideos()` plus one immediate lens-metric pass after committed phase / layout / camera changes (`useLayoutEffect`). It must not own previous destinations, assign `_videoNodes`, or wait on the debounced recapture timer for that sync. Debounced `recapture()` remains for settled static DOM changes.
+
 ## Manual verification checklist
 
 1. Run `npm run build` and confirm the production bundle contains `liquid-gl` source (`rg -l "liquidGL" dist/assets`).
@@ -131,6 +145,9 @@ It is marked `data-liquid-ignore` and must not be used alone as proof — also c
 9. Force fallback with `window.__miniPhoForceGlassFallback__ = true` + reload and confirm CSS blur returns.
 10. Toggle mic/camera and hide/show controls repeatedly — canvas count must stay at 1.
 11. Navigate away from the call route and confirm the LiquidGL canvas is removed.
+12. Fullscreen → PiP: old local-camera pixels disappear immediately; remote video stays visible behind glass with no black glass / one-frame flicker.
+13. Confirm remote glass rendering follows the visible opacity transition on join.
+14. Confirm a remote video that appears after LiquidGL init (e.g. ignored during ringing, then activated) is discovered by the renderer rescan alone.
 
 ## Detecting duplicate canvases
 

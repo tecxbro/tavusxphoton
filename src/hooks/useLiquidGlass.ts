@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CallPhase } from "../lib/callState";
 import type { LocalCameraMode } from "../components/LocalCameraSurface";
 import {
@@ -21,6 +21,8 @@ export interface UseLiquidGlassResult {
   error: string | null;
   refresh: () => void;
   refreshImmediate: () => void;
+  /** Immediate video + lens sync after a committed layout change. */
+  syncVideoLayout: () => void;
 }
 
 export function useLiquidGlass({
@@ -98,33 +100,46 @@ export function useLiquidGlass({
     };
   }, [enabled, backgroundReady]);
 
-  // Lens metric updates: controls move/resize, chrome fades, layout morphs.
+  // After committed phase / layout / camera DOM changes: immediate video sync
+  // + one lens-metric pass. Do not follow with refreshImmediate().
+  useLayoutEffect(() => {
+    controllerRef.current?.syncVideoLayout();
+  }, [phase, layoutMode, videoEnabled]);
+
+  // Lens metric updates for chrome fade (syncVideoLayout already covers
+  // phase / layoutMode / videoEnabled).
   useEffect(() => {
     controllerRef.current?.refresh();
-  }, [phase, controlsVisible, layoutMode]);
+  }, [controlsVisible]);
 
-  // Phase-driven layout changes alter the content behind the glass.
+  // Debounced recapture for settled static DOM changes (phase + camera off
+  // placeholder). syncVideoLayout does not wait for this timer.
   useEffect(() => {
     controllerRef.current?.recapture();
-  }, [phase]);
-
-  // Camera toggles: immediately drop the stale video frame from the glass
-  // texture (the renderer stops blitting but never erases), then recapture
-  // once the placeholder cross-fade has settled (debounced).
-  useEffect(() => {
-    controllerRef.current?.syncVideoRegions();
-    controllerRef.current?.recapture();
-  }, [videoEnabled]);
+  }, [phase, videoEnabled]);
 
   // Keep the glass canvas visibility in sync with the chrome fade.
   useEffect(() => {
     controllerRef.current?.setChromeVisible(controlsVisible);
   }, [controlsVisible]);
 
+  const refresh = useCallback(() => {
+    controllerRef.current?.refresh();
+  }, []);
+
+  const refreshImmediate = useCallback(() => {
+    controllerRef.current?.refreshImmediate();
+  }, []);
+
+  const syncVideoLayout = useCallback(() => {
+    controllerRef.current?.syncVideoLayout();
+  }, []);
+
   return {
     mode,
     error,
-    refresh: () => controllerRef.current?.refresh(),
-    refreshImmediate: () => controllerRef.current?.refreshImmediate(),
+    refresh,
+    refreshImmediate,
+    syncVideoLayout,
   };
 }

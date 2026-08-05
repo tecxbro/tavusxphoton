@@ -16,8 +16,11 @@ export interface LiquidGlassController {
   refreshImmediate(): void;
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
-  /** Immediately drop stale video frames baked into the glass texture. */
-  syncVideoRegions(): void;
+  /**
+   * Immediate video + lens sync after a committed layout change.
+   * Calls `_syncDynamicVideos()` and one lens-metric pass — no snapshot.
+   */
+  syncVideoLayout(): void;
   /** Fade the shared glass canvas with the call chrome. */
   setChromeVisible(visible: boolean): void;
   destroy(): void;
@@ -47,19 +50,15 @@ interface RendererLike {
   canvas?: HTMLCanvasElement | null;
   lenses?: LiquidLensLike[];
   captureSnapshot?: () => Promise<void> | void;
-  gl?: WebGLRenderingContext | WebGL2RenderingContext | null;
-  texture?: WebGLTexture | null;
-  staticSnapshotCanvas?: HTMLCanvasElement | null;
-  snapshotTarget?: HTMLElement | null;
-  scaleFactor?: number;
-  _videoNodes?: HTMLVideoElement[];
-  _videoFrameState?: WeakMap<HTMLVideoElement, unknown>;
-  _isIgnored?: (el: HTMLElement) => boolean;
+  _syncDynamicVideos?: () => void;
+  _clearDynamicVideoState?: () => void;
+  destroy?: () => void;
 }
 
 declare global {
   interface Window {
     __liquidGLRenderer__?: RendererLike;
+    __liquidGLNoWebGL__?: boolean;
     __miniPhoForceGlassFallback__?: boolean;
     __miniPhoLiquidGlassDebug__?: LiquidGlassDebugState;
   }
@@ -164,75 +163,6 @@ function adoptRendererCanvas(): void {
   }
 }
 
-/**
- * liquid-gl blits live video frames into the shared texture every frame, but
- * when a video becomes ignored (camera off) it simply stops blitting — leaving
- * the last frame frozen inside the glass long after the DOM has cross-faded to
- * the camera-off placeholder. Re-upload those regions from the static snapshot
- * (same erase technique the renderer uses for dynamic nodes) so the glass
- * drops the stale frame in the same commit as the DOM; the debounced recapture
- * then lands the settled placeholder. Version-locked to liquid-gl@2.0.1.
- */
-function eraseStaleVideoRegions(): void {
-  const renderer = window.__liquidGLRenderer__;
-  if (!renderer) return;
-  const { gl, texture, staticSnapshotCanvas, snapshotTarget } = renderer;
-  if (!gl || !texture || !staticSnapshotCanvas || !snapshotTarget) return;
-
-  const isIgnored = (el: HTMLVideoElement): boolean =>
-    renderer._isIgnored?.(el) ?? Boolean(el.closest("[data-liquid-ignore]"));
-
-  // Re-scan so videos ignored or added since construction stay tracked; the
-  // renderer's per-frame ignore check still gates its live blits.
-  const videos = Array.from(snapshotTarget.querySelectorAll("video"));
-  renderer._videoNodes = videos;
-
-  const snapRect = snapshotTarget.getBoundingClientRect();
-  const scale = renderer.scaleFactor ?? 1;
-  const maxW = staticSnapshotCanvas.width;
-  const maxH = staticSnapshotCanvas.height;
-  if (maxW <= 0 || maxH <= 0) return;
-
-  let tmp: HTMLCanvasElement | null = null;
-  let tmpCtx: CanvasRenderingContext2D | null = null;
-
-  for (const vid of videos) {
-    if (!isIgnored(vid) && vid.readyState >= 2) continue;
-
-    const rect = vid.getBoundingClientRect();
-    // Texture pixels map 1:1 onto the static snapshot canvas.
-    const x0 = Math.max(0, (rect.left - snapRect.left) * scale);
-    const y0 = Math.max(0, (rect.top - snapRect.top) * scale);
-    const x1 = Math.min(maxW, (rect.right - snapRect.left) * scale);
-    const y1 = Math.min(maxH, (rect.bottom - snapRect.top) * scale);
-    const w = Math.round(x1 - x0);
-    const h = Math.round(y1 - y0);
-    if (w <= 0 || h <= 0) continue;
-
-    if (!tmp || !tmpCtx) {
-      tmp = document.createElement("canvas");
-      tmpCtx = tmp.getContext("2d");
-      if (!tmpCtx) return;
-    }
-    tmp.width = w;
-    tmp.height = h;
-    tmpCtx.drawImage(staticSnapshotCanvas, x0, y0, w, h, 0, 0, w, h);
-
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      Math.round(x0),
-      Math.round(y0),
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      tmp,
-    );
-    // Force a live redraw when the video becomes visible again.
-    renderer._videoFrameState?.delete(vid);
-  }
-}
-
 // Private renderer fields below are version-locked to liquid-gl@2.0.1
 // (see patches/liquid-gl+2.0.1.patch). Do not upgrade without re-auditing.
 function clearRenderer(): void {
@@ -249,6 +179,9 @@ function clearRenderer(): void {
     lens._shadowEl?.remove();
     lens._mirror?.remove();
   }
+
+  renderer.destroy?.();
+  renderer._clearDynamicVideoState?.();
 
   renderer.lenses = [];
   renderer.canvas?.remove();
@@ -481,11 +414,25 @@ export function createLiquidGlassController(): LiquidGlassController {
         publishDebug();
       }, RECAPTURE_DEBOUNCE_MS);
     },
-    syncVideoRegions() {
+    syncVideoLayout() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
       if (!initialized) return;
-      eraseStaleVideoRegions();
+      // Renderer owns video rescan + stale-destination cleanup
+      // (patches/liquid-gl+2.0.1.patch). Do not assign _videoNodes here.
+      window.__liquidGLRenderer__?._syncDynamicVideos?.();
+      // Exactly one immediate lens-metric pass — callers must not follow with
+      // refreshImmediate(). No snapshot; retain the current renderer/canvas.
+      if (refreshTimer != null) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      for (const instance of instances) {
+        instance.updateMetrics?.();
+      }
+      adoptRendererCanvas();
+      publishDebug();
+      assertSingleCanvasDev();
     },
     setChromeVisible(visible: boolean) {
       if (destroyed) return;

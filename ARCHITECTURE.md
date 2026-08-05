@@ -125,7 +125,7 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 ### LiquidGL pin and patch
 
-`liquid-gl@2.0.1` is exact-pinned; `patches/liquid-gl+2.0.1.patch` is applied via `patch-package`. Private renderer fields and stale-video erase logic are version-locked. Exactly one shared WebGL canvas is adopted into `.liquid-canvas-layer`. CSS frosted fallback runs when WebGL is missing, init fails, reduced transparency is preferred, or `__miniPhoForceGlassFallback__` is set. See `docs/liquid-gl-verification.md`.
+`liquid-gl@2.0.1` is exact-pinned; `patches/liquid-gl+2.0.1.patch` is applied via `patch-package`. The patched renderer owns dynamic-video rescan, stale destination cleanup, and opacity-aware compositing into one shared WebGL canvas (adopted into `.liquid-canvas-layer`). App code calls `syncVideoLayout()` after committed phase / layout / camera changes (`useLayoutEffect`) to run `_syncDynamicVideos()` plus one immediate lens-metric pass — no snapshot, no delayed recapture wait. Debounced `recapture()` remains for settled static DOM. CSS frosted fallback runs when WebGL is missing, init fails, reduced transparency is preferred, or `__miniPhoForceGlassFallback__` is set. See `docs/liquid-gl-verification.md`.
 
 ### Tavus secrets
 
@@ -151,7 +151,7 @@ Also unused at runtime: `src/lib/photonAppCard.ts` (helper only). `More` in the 
 | Media / auto-hide / timer | `src/tests/unit/hooks.test.ts` |
 | Call audio (FaceTime SFX) | `src/tests/unit/callAudio.test.ts` |
 | Tavus + Daily hook | `src/tests/unit/useTavusCall.test.tsx` |
-| LiquidGL controller | `src/tests/unit/liquidGlass.test.ts`, `useLiquidGlass.test.tsx` |
+| LiquidGL controller / dynamic video / morph | `src/tests/unit/liquidGlass.test.ts`, `useLiquidGlass.test.tsx`, `liquidGlDynamicVideos.test.ts`, `useLayoutMorph.test.ts` |
 | Call chrome / symbols | `src/tests/unit/callControls.test.tsx`, `symbolIcon.test.tsx` |
 | Tavus API | `api/tests/tavusApi.test.ts` |
 

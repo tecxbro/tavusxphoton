@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -25,6 +26,7 @@ import { useCallAudio } from "../hooks/useCallAudio";
 import { useCallTimer } from "../hooks/useCallTimer";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
 import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
+import { useLayoutMorph } from "../hooks/useLayoutMorph";
 import { useLiquidGlass } from "../hooks/useLiquidGlass";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import { useTavusCall } from "../hooks/useTavusCall";
@@ -397,7 +399,13 @@ export function CallScreen({ config }: CallScreenProps) {
     !dragging &&
     !flippingCamera;
 
-  const { mode: liquidMode, refreshImmediate } = useLiquidGlass({
+  const flipOverlayRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    mode: liquidMode,
+    refreshImmediate,
+    syncVideoLayout,
+  } = useLiquidGlass({
     enabled: showLocal,
     backgroundReady: backgroundReady && showLocal,
     phase,
@@ -405,6 +413,24 @@ export function CallScreen({ config }: CallScreenProps) {
     layoutMode: mode,
     videoEnabled,
   });
+
+  // CallScreen owns the only self-view morph: local camera primary, Flip
+  // overlay follower (outside #liquid-gl-snapshot). syncVideoLayout already
+  // includes one metric pass — do not add refreshImmediate beside start/finish.
+  useLayoutMorph(dragNodeRef, {
+    activeKey: mode,
+    durationMs: morphDurationMs,
+    followers: [flipOverlayRef],
+    onStart: syncVideoLayout,
+    onFrame: refreshImmediate,
+    onFinish: syncVideoLayout,
+  });
+
+  // Flip visibility changes (drag, camera switch, phase, chrome) need one
+  // immediate metric refresh after the commit — not only on drag completion.
+  useLayoutEffect(() => {
+    refreshImmediate();
+  }, [flipPillVisible, refreshImmediate]);
 
   const selfStyle = useMemo(() => {
     if (mode === "fullscreen" || !dragPosition) return undefined;
@@ -484,7 +510,6 @@ export function CallScreen({ config }: CallScreenProps) {
             videoEnabled={videoEnabled}
             mirrored={facingMode === "user"}
             mode={mode}
-            morphDurationMs={morphDurationMs}
             selfName="You"
             selfAvatar={config.selfAvatar}
             style={selfStyle}
@@ -504,7 +529,7 @@ export function CallScreen({ config }: CallScreenProps) {
         <SelfViewControlsOverlay
           mode={mode}
           style={selfStyle}
-          morphDurationMs={morphDurationMs}
+          overlayRef={flipOverlayRef}
           flipVisible={flipPillVisible}
           flipDisabled={flippingCamera}
           onFlip={flipCamera}

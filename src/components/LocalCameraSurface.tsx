@@ -6,8 +6,6 @@ import {
   type RefObject,
 } from "react";
 import { getInitials } from "../lib/callState";
-import { CALL_MOTION } from "../lib/callUi";
-import { useLayoutMorph } from "../hooks/useLayoutMorph";
 
 export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
 
@@ -16,10 +14,10 @@ interface LocalCameraSurfaceProps {
   videoEnabled: boolean;
   mirrored: boolean;
   mode: LocalCameraMode;
-  morphDurationMs?: number;
   selfName: string;
   selfAvatar?: string;
   style?: CSSProperties;
+  /** Forwarded to the moving root — CallScreen owns the shared FLIP morph. */
   nodeRef: RefObject<HTMLDivElement | null>;
   videoRef?: RefObject<HTMLVideoElement | null>;
   onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
@@ -28,22 +26,11 @@ interface LocalCameraSurfaceProps {
   draggable?: boolean;
 }
 
-function morphDurationFor(
-  from: LocalCameraMode,
-  to: LocalCameraMode,
-): number {
-  if (from === "fullscreen" || to === "fullscreen") {
-    return CALL_MOTION.joinMs;
-  }
-  return CALL_MOTION.controlMs;
-}
-
 export function LocalCameraSurface({
   stream,
   videoEnabled,
   mirrored,
   mode,
-  morphDurationMs,
   selfName,
   selfAvatar,
   style,
@@ -55,12 +42,6 @@ export function LocalCameraSurface({
   draggable = false,
 }: LocalCameraSurfaceProps) {
   const innerVideoRef = useRef<HTMLVideoElement | null>(null);
-  const previousModeRef = useRef(mode);
-  const resolvedDuration =
-    morphDurationMs ??
-    morphDurationFor(previousModeRef.current, mode);
-  useLayoutMorph(nodeRef, mode, resolvedDuration);
-  previousModeRef.current = mode;
 
   useEffect(() => {
     const element = innerVideoRef.current;
