@@ -91,35 +91,35 @@
 }
 
 .local-camera-surface[data-mode="expanded"] {
-  top: calc(var(--safe-top) + 68px);
-  right: calc(var(--safe-right) + 24px);
+  top: calc(var(--safe-top) + var(--self-expanded-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
   left: auto;
   bottom: auto;
   width: var(--self-expanded-width);
-  aspect-ratio: var(--self-aspect);
+  aspect-ratio: var(--self-expanded-aspect);
   height: auto;
   border-radius: var(--radius-self-expanded);
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
   transition:
     border-radius var(--motion-self) var(--ease-out-expo),
-    box-shadow var(--motion-self) ease;
+    box-shadow var(--motion-self) var(--ease-out-expo);
 }
 
 .local-camera-surface[data-mode="compact"] {
-  top: calc(var(--safe-top) + 18px);
-  right: calc(var(--safe-right) + 24px);
+  top: calc(var(--safe-top) + var(--self-compact-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
   left: auto;
   bottom: auto;
   width: var(--self-compact-width);
-  aspect-ratio: var(--self-aspect);
+  aspect-ratio: var(--self-compact-aspect);
   height: auto;
   border-radius: var(--radius-self-compact);
   border: 1px solid rgba(255, 255, 255, 0.34);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
   transition:
     border-radius var(--motion-self) var(--ease-out-expo),
-    box-shadow var(--motion-self) ease;
+    box-shadow var(--motion-self) var(--ease-out-expo);
 }
 
 .local-camera-surface__video {
@@ -174,15 +174,57 @@
   object-fit: cover;
 }
 
-/* Positioned in the chrome layer, anchored to the self-view rect so its
-   content stays above the shared LiquidGL canvas. */
+/* Transparent overlay shares self-view geometry + morph; Flip pill is bottom-anchored. */
+.self-view-controls-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: var(--chrome-z);
+  background: transparent;
+  transform-origin: top right;
+  will-change: transform;
+}
+
+.self-view-controls-overlay[data-mode="fullscreen"] {
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.self-view-controls-overlay[data-mode="expanded"] {
+  top: calc(var(--safe-top) + var(--self-expanded-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
+  left: auto;
+  bottom: auto;
+  width: var(--self-expanded-width);
+  aspect-ratio: var(--self-expanded-aspect);
+  height: auto;
+}
+
+.self-view-controls-overlay[data-mode="compact"] {
+  top: calc(var(--safe-top) + var(--self-compact-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
+  left: auto;
+  bottom: auto;
+  width: var(--self-compact-width);
+  aspect-ratio: var(--self-compact-aspect);
+  height: auto;
+}
+
 .self-flip-capsule {
   position: absolute;
-  width: 88px;
-  height: 38px;
-  border-radius: 19px;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  width: 86px;
+  height: 36px;
+  border-radius: 18px;
   color: #fff;
   z-index: var(--glass-z);
+}
+
+.self-view-controls-overlay[data-mode="fullscreen"] .self-flip-capsule {
+  display: none;
 }
 
 /* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
@@ -191,16 +233,17 @@
 }
 
 .self-flip-capsule[data-visible="true"] {
-  animation: chrome-in 220ms var(--ease-out-expo);
+  animation: chrome-in var(--motion-chrome) var(--ease-out-expo);
 }
 
 .self-flip-capsule__content {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 17px;
+  gap: 4px;
+  font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.1px;
   pointer-events: none;
 }
 
@@ -240,27 +283,26 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 
 .facetime-chrome.is-hidden {
   opacity: 0;
-  transform: scale(0.96);
+  transform: none;
   pointer-events: none;
 }
 
 .facetime-chrome.is-visible {
   opacity: 1;
-  transform: scale(1);
+  transform: none;
 }
 
 .contact-pill {
   position: absolute;
   top: calc(var(--safe-top) + 14px);
   left: calc(var(--safe-left) + 18px);
-  height: 44px;
+  height: 42px;
   max-width: min(68vw, 270px);
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   color: var(--color-white);
   min-width: 44px;
-  transition: width 240ms var(--ease-out-expo);
 }
 
 .contact-pill__content {
@@ -268,15 +310,15 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px 6px 6px;
+  gap: 7px;
+  padding: 4px 10px 4px 4px;
   pointer-events: none;
 }
 
 .contact-pill__avatar,
 .contact-pill__avatar-fallback {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -299,7 +341,8 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   display: block;
   font-size: 17px;
   font-weight: 600;
-  line-height: 1.15;
+  line-height: 1;
+  letter-spacing: -0.2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -335,7 +378,7 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 .control-rail {
   position: absolute;
   right: calc(var(--safe-right) + 24px);
-  bottom: calc(var(--safe-bottom) + 34px);
+  bottom: calc(var(--safe-bottom) + 28px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -458,7 +501,7 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 
 .waiting-flip-btn {
   position: absolute;
-  left: calc(var(--safe-left) + 22px);
+  left: calc(var(--safe-left) + 17px);
   bottom: calc(var(--safe-bottom) + 38px);
   width: var(--control-waiting-flip);
   height: var(--control-waiting-flip);

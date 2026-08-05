@@ -34,15 +34,12 @@ export const defaultCall: CallConfig = {
   participantAvatar: "/avatars/pho.jpg",
 };
 
-export const CONNECTING_MIN_MS = 700;
+export { CALL_MOTION, EASE_OUT_EXPO, SELF_VIEW_LAYOUT } from "./callUi";
+
 export const AUTO_HIDE_MS = 2000;
-export const JOIN_MORPH_MS = 520;
-export const CHROME_HIDE_MS = 280;
-export const SELF_COMPACT_MS = 400;
 export const MORE_OPEN_MS = 420;
 export const MORE_CLOSE_MS = 210;
 export const TOGGLE_SYMBOL_MS = 180;
-export const EASE_OUT_EXPO = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 

@@ -1,6 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { useCallAudio } from "../../hooks/useCallAudio";
+import {
+  useCallAudio,
+  type CallAudioPhase,
+} from "../../hooks/useCallAudio";
 import { CALL_AUDIO } from "../../lib/callAudio";
 
 type FakeAudio = HTMLAudioElement & {
@@ -45,8 +48,19 @@ describe("useCallAudio", () => {
 
   it("maps phase transitions to ringing, connected, and ended", () => {
     const { rerender, unmount } = renderHook(
-      ({ phase, audioEnabled }) => useCallAudio(phase, audioEnabled),
-      { initialProps: { phase: "bootstrapping" as const, audioEnabled: true } },
+      ({
+        phase,
+        audioEnabled,
+      }: {
+        phase: CallAudioPhase;
+        audioEnabled: boolean;
+      }) => useCallAudio(phase, audioEnabled),
+      {
+        initialProps: {
+          phase: "bootstrapping" as CallAudioPhase,
+          audioEnabled: true,
+        },
+      },
     );
 
     act(() => {
@@ -80,8 +94,16 @@ describe("useCallAudio", () => {
 
   it("plays mic mute and unmute when audioEnabled flips", () => {
     const { rerender, unmount } = renderHook(
-      ({ phase, audioEnabled }) => useCallAudio(phase, audioEnabled),
-      { initialProps: { phase: "live" as const, audioEnabled: true } },
+      ({
+        phase,
+        audioEnabled,
+      }: {
+        phase: CallAudioPhase;
+        audioEnabled: boolean;
+      }) => useCallAudio(phase, audioEnabled),
+      {
+        initialProps: { phase: "live" as CallAudioPhase, audioEnabled: true },
+      },
     );
 
     act(() => {

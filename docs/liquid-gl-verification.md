@@ -35,16 +35,16 @@ Matches `buildOptions("active")` in `src/lib/liquidGlass.ts`:
   snapshot: "#liquid-gl-snapshot",
   target: ".liquidGL",
   resolution: isMobile ? 1.25 : 1.5, // reduced preset uses 1.0
-  refraction: 0.018, // reduced: 0.012
-  aberration: 0.004, // reduced: 0.002
-  bevelDepth: 0.085,
-  bevelWidth: 0.17,
-  frost: 0.25, // reduced: 0.35
+  refraction: 0.024, // reduced: 0.014
+  aberration: 0.005, // reduced: 0.002
+  bevelDepth: 0.12,
+  bevelWidth: 0.22,
+  frost: 0.16, // reduced: 0.32
   shadow: true,
   specular: true, // disabled in reduced preset
   reveal: "none",
   tilt: false,
-  magnify: 1.012, // reduced: 1.008
+  magnify: 1.02, // reduced: 1.01
 }
 ```
 

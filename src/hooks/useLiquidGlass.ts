@@ -20,6 +20,7 @@ export interface UseLiquidGlassResult {
   mode: LiquidGlassMode;
   error: string | null;
   refresh: () => void;
+  refreshImmediate: () => void;
 }
 
 export function useLiquidGlass({
@@ -124,5 +125,6 @@ export function useLiquidGlass({
     mode,
     error,
     refresh: () => controllerRef.current?.refresh(),
+    refreshImmediate: () => controllerRef.current?.refreshImmediate(),
   };
 }

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CameraFacing } from "../lib/callState";
 
+export type FlipBeforeAttach = (
+  track: MediaStreamTrack,
+) => void | Promise<void>;
+
 export interface MediaDevicesState {
   stream: MediaStream | null;
   videoEnabled: boolean;
@@ -8,11 +12,14 @@ export interface MediaDevicesState {
   facingMode: CameraFacing;
   error: string | null;
   requesting: boolean;
+  flippingCamera: boolean;
   requestPermissions: () => Promise<MediaStream | null>;
   toggleVideo: () => boolean;
   toggleAudio: () => boolean;
   setAudioEnabled: (enabled: boolean) => void;
-  flipCamera: () => Promise<CameraFacing | null>;
+  flipCamera: (
+    beforeAttach?: FlipBeforeAttach,
+  ) => Promise<CameraFacing | null>;
   stopAll: () => void;
 }
 
@@ -33,12 +40,22 @@ export function useMediaDevices(): MediaDevicesState {
   const [facingMode, setFacingMode] = useState<CameraFacing>("user");
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const [flippingCamera, setFlippingCamera] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   // Invalidates overlapping getUserMedia / stopAll work so a superseded
   // permission grant cannot attach after the caller moved on.
   const requestGeneration = useRef(0);
   // Coalesce concurrent requestPermissions callers onto one in-flight promise.
   const requestInFlight = useRef<Promise<MediaStream | null> | null>(null);
+  // Camera flip generation + single-flight — late replacements after stopAll
+  // / unmount must not attach, and rapid Flip presses share one promise.
+  const flipGenerationRef = useRef(0);
+  const flipInFlightRef = useRef<Promise<CameraFacing | null> | null>(null);
+  const videoEnabledRef = useRef(videoEnabled);
+  const facingModeRef = useRef(facingMode);
+
+  videoEnabledRef.current = videoEnabled;
+  facingModeRef.current = facingMode;
 
   const attachStream = useCallback((next: MediaStream) => {
     streamRef.current = next;
@@ -120,47 +137,99 @@ export function useMediaDevices(): MediaDevicesState {
     setAudioEnabled(enabled);
   }, []);
 
-  const flipCamera = useCallback(async () => {
-    const current = streamRef.current;
-    if (!current) return null;
-
-    const nextFacing: CameraFacing =
-      facingMode === "user" ? "environment" : "user";
-
-    try {
-      // Replace video only; keep existing audio tracks so mute state survives.
-      const replacement = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: nextFacing },
-        audio: false,
-      });
-
-      const newVideo = replacement.getVideoTracks()[0];
-      if (!newVideo) {
-        replacement.getTracks().forEach((track) => track.stop());
-        throw new Error("Replacement camera did not provide a video track");
+  const flipCamera = useCallback(
+    (beforeAttach?: FlipBeforeAttach): Promise<CameraFacing | null> => {
+      if (flipInFlightRef.current) {
+        return flipInFlightRef.current;
       }
 
-      newVideo.enabled = videoEnabled;
-      const oldVideo = current.getVideoTracks()[0];
-      const audioTracks = current.getAudioTracks();
-      const combined = new MediaStream([newVideo, ...audioTracks]);
+      const current = streamRef.current;
+      if (!current) return Promise.resolve(null);
 
-      // Stop the old track only after the new stream is attached so preview
-      // never goes black on a failed flip mid-swap.
-      attachStream(combined);
-      setFacingMode(nextFacing);
-      setVideoEnabled(newVideo.enabled);
-      oldVideo?.stop();
+      const generation = ++flipGenerationRef.current;
+      const nextFacing: CameraFacing =
+        facingModeRef.current === "user" ? "environment" : "user";
 
-      return nextFacing;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to flip camera");
-      return null;
-    }
-  }, [attachStream, facingMode, videoEnabled]);
+      setFlippingCamera(true);
+
+      const pending = (async (): Promise<CameraFacing | null> => {
+        let replacementTrack: MediaStreamTrack | null = null;
+        try {
+          // 1. Request the new video track.
+          const replacement = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: nextFacing },
+            audio: false,
+          });
+
+          const newVideo = replacement.getVideoTracks()[0];
+          if (!newVideo) {
+            replacement.getTracks().forEach((track) => track.stop());
+            throw new Error("Replacement camera did not provide a video track");
+          }
+          replacementTrack = newVideo;
+
+          // 2. Confirm the generation is current.
+          if (generation !== flipGenerationRef.current) {
+            newVideo.stop();
+            return null;
+          }
+
+          newVideo.enabled = videoEnabledRef.current;
+
+          // 3. Pass that exact track to Daily (optional caller hook).
+          if (beforeAttach) {
+            await beforeAttach(newVideo);
+          }
+
+          // 4. Confirm the generation again.
+          if (generation !== flipGenerationRef.current) {
+            newVideo.stop();
+            return null;
+          }
+
+          const oldVideo = current.getVideoTracks()[0];
+          const audioTracks = current.getAudioTracks();
+          const combined = new MediaStream([newVideo, ...audioTracks]);
+
+          // 5–7. Attach new stream, preserve audio, stop old video.
+          attachStream(combined);
+          oldVideo?.stop();
+
+          // 8–9. Update facing and clear prior camera errors.
+          setFacingMode(nextFacing);
+          setVideoEnabled(newVideo.enabled);
+          setError(null);
+          replacementTrack = null;
+
+          return nextFacing;
+        } catch (err) {
+          replacementTrack?.stop();
+          if (generation === flipGenerationRef.current) {
+            setError(
+              err instanceof Error ? err.message : "Unable to flip camera",
+            );
+          }
+          return null;
+        } finally {
+          if (flipInFlightRef.current === pending) {
+            flipInFlightRef.current = null;
+            setFlippingCamera(false);
+          }
+        }
+      })();
+
+      flipInFlightRef.current = pending;
+      return pending;
+    },
+    [attachStream],
+  );
 
   const stopAll = useCallback(() => {
     requestGeneration.current += 1;
+    // Invalidate in-flight flips so late replacement tracks cannot attach.
+    flipGenerationRef.current += 1;
+    flipInFlightRef.current = null;
+    setFlippingCamera(false);
     stopTracks(streamRef.current);
     streamRef.current = null;
     setStream(null);
@@ -168,6 +237,8 @@ export function useMediaDevices(): MediaDevicesState {
 
   useEffect(() => {
     return () => {
+      flipGenerationRef.current += 1;
+      flipInFlightRef.current = null;
       stopTracks(streamRef.current);
       streamRef.current = null;
     };
@@ -180,6 +251,7 @@ export function useMediaDevices(): MediaDevicesState {
     facingMode,
     error,
     requesting,
+    flippingCamera,
     requestPermissions,
     toggleVideo,
     toggleAudio,

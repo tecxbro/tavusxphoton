@@ -23,6 +23,7 @@ export interface UseTavusCallResult {
   videoEnabled: boolean;
   audioEnabled: boolean;
   facingMode: CameraFacing;
+  flippingCamera: boolean;
   toggleVideo: () => boolean;
   toggleAudio: () => boolean;
   flipCamera: () => Promise<CameraFacing | null>;
@@ -63,6 +64,7 @@ export function useTavusCall(): UseTavusCallResult {
     videoEnabled,
     audioEnabled,
     facingMode,
+    flippingCamera,
     error: mediaError,
     requestPermissions,
     toggleVideo: toggleMediaVideo,
@@ -86,9 +88,6 @@ export function useTavusCall(): UseTavusCallResult {
   const generationRef = useRef(0);
   const palJoinedRef = useRef(false);
   const handlersRef = useRef<DailyHandlers | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-
-  localStreamRef.current = localStream;
 
   const clearRemoteStreams = useCallback(() => {
     setRemoteVideoStream(null);
@@ -428,19 +427,18 @@ export function useTavusCall(): UseTavusCallResult {
   }, [toggleMediaAudio]);
 
   const flipCamera = useCallback(async () => {
-    const nextFacing = await flipMediaCamera();
-    if (!nextFacing) return null;
-
-    const call = callRef.current;
-    const videoTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (call && !call.isDestroyed() && videoTrack) {
-      try {
-        await call.setInputDevicesAsync({ videoSource: videoTrack });
-      } catch {
-        // UI flip still succeeded; Daily will keep prior camera if update fails.
+    // Pass the newly acquired track directly to Daily before attach — never
+    // re-read localStream for the replacement track.
+    return flipMediaCamera(async (track) => {
+      const call = callRef.current;
+      if (call && !call.isDestroyed()) {
+        try {
+          await call.setInputDevicesAsync({ videoSource: track });
+        } catch {
+          // UI flip still proceeds; Daily keeps prior camera if update fails.
+        }
       }
-    }
-    return nextFacing;
+    });
   }, [flipMediaCamera]);
 
   useEffect(() => {
@@ -469,6 +467,7 @@ export function useTavusCall(): UseTavusCallResult {
     videoEnabled,
     audioEnabled,
     facingMode,
+    flippingCamera,
     toggleVideo,
     toggleAudio,
     flipCamera,

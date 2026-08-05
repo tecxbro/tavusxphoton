@@ -81,12 +81,12 @@ describe("liquidGlass", () => {
     const options = getFullLiquidGlassOptionConstraints();
     expect(options.snapshot).toBe(LIQUID_GL_SNAPSHOT);
     expect(options.target).toBe(LIQUID_GL_TARGET);
-    expect(options.refraction).toBe(0.018);
-    expect(options.aberration).toBe(0.004);
-    expect(options.bevelDepth).toBe(0.085);
-    expect(options.bevelWidth).toBe(0.17);
-    expect(options.magnify).toBe(1.012);
-    expect(options.frost).toBe(0.25);
+    expect(options.refraction).toBe(0.024);
+    expect(options.aberration).toBe(0.005);
+    expect(options.bevelDepth).toBe(0.12);
+    expect(options.bevelWidth).toBe(0.22);
+    expect(options.magnify).toBe(1.02);
+    expect(options.frost).toBe(0.16);
     expect(options.specular).toBe(true);
     expect(LIQUID_GL_PACKAGE_VERSION).toBe("2.0.1");
     expect(LIQUID_GL_CANVAS_LAYER).toBe(".liquid-canvas-layer");
@@ -113,12 +113,12 @@ describe("liquidGlass", () => {
     };
     expect(options.snapshot).toBe("#liquid-gl-snapshot");
     expect(options.target).toBe(".liquidGL");
-    expect(options.refraction).toBe(0.018);
-    expect(options.aberration).toBe(0.004);
-    expect(options.bevelDepth).toBe(0.085);
-    expect(options.bevelWidth).toBe(0.17);
-    expect(options.magnify).toBe(1.012);
-    expect(options.frost).toBe(0.25);
+    expect(options.refraction).toBe(0.024);
+    expect(options.aberration).toBe(0.005);
+    expect(options.bevelDepth).toBe(0.12);
+    expect(options.bevelWidth).toBe(0.22);
+    expect(options.magnify).toBe(1.02);
+    expect(options.frost).toBe(0.16);
     expect(options.specular).toBe(true);
     expect(controller.mode).toBe("active");
     expect(document.documentElement.dataset.liquidGl).toBe("active");
@@ -235,6 +235,25 @@ describe("liquidGlass", () => {
     vi.advanceTimersByTime(100);
     expect(updateMetrics).toHaveBeenCalledTimes(1);
     expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
+  it("refreshImmediate updates metrics without waiting for the debounce", () => {
+    vi.useFakeTimers();
+    const updateMetrics = vi.fn();
+    liquidGLMock.mockImplementation((options: MockOptions) => {
+      options.on?.init?.({});
+      return { updateMetrics };
+    });
+
+    const controller = createLiquidGlassController();
+    controller.refresh();
+    controller.refreshImmediate();
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(100);
+    // Debounced refresh was cancelled by the immediate call.
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
     controller.destroy();
     vi.useRealTimers();
   });

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { EASE_OUT_EXPO, JOIN_MORPH_MS } from "../lib/callState";
+import { CALL_MOTION, EASE_OUT_EXPO } from "../lib/callUi";
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -12,7 +12,7 @@ function prefersReducedMotion(): boolean {
 export function useLayoutMorph(
   nodeRef: RefObject<HTMLElement | null>,
   activeKey: string,
-  durationMs = JOIN_MORPH_MS,
+  durationMs: number = CALL_MOTION.joinMs,
 ): void {
   const previousKey = useRef(activeKey);
   const previousRect = useRef<DOMRect | null>(null);

@@ -131,6 +131,18 @@ describe("auto-hide timeout", () => {
   });
 });
 
+describe("shared call motion", () => {
+  it("keeps FaceTime-aligned timing constants", async () => {
+    const { CALL_MOTION, AUTO_HIDE_MS: hide } = await import(
+      "../../lib/callState"
+    );
+    expect(CALL_MOTION.connectingMinMs).toBe(400);
+    expect(CALL_MOTION.joinMs).toBe(200);
+    expect(CALL_MOTION.controlMs).toBe(180);
+    expect(hide).toBe(2000);
+  });
+});
+
 describe("object-cover math", () => {
   it("crops wider sources horizontally", () => {
     const rect = objectCoverSourceRect(1920, 1080, 400, 800);

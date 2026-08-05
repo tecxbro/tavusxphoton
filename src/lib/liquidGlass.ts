@@ -12,6 +12,8 @@ export interface LiquidGlassController {
   mode: LiquidGlassMode;
   /** Debounced lens metric refresh — never recreates the renderer. */
   refresh(): void;
+  /** Immediate lens metric update after a DOM commit (e.g. contact label). */
+  refreshImmediate(): void;
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
   /** Immediately drop stale video frames baked into the glass texture. */
@@ -279,16 +281,16 @@ function buildOptions(
     target: LIQUID_GL_TARGET,
     resolution: reduced ? 1.0 : mobile ? 1.25 : 1.5,
     // Active mode must retain nonzero refraction and low frost (not a frosted overlay).
-    refraction: reduced ? 0.012 : 0.018,
-    aberration: reduced ? 0.002 : 0.004,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    frost: reduced ? 0.35 : 0.25,
+    refraction: reduced ? 0.014 : 0.024,
+    aberration: reduced ? 0.002 : 0.005,
+    bevelDepth: 0.12,
+    bevelWidth: 0.22,
+    frost: reduced ? 0.32 : 0.16,
     shadow: true,
     specular: !reduced,
     reveal: "none" as const,
     tilt: false,
-    magnify: reduced ? 1.008 : 1.012,
+    magnify: reduced ? 1.01 : 1.02,
     on: {
       init: onInit,
     },
@@ -439,6 +441,21 @@ export function createLiquidGlassController(): LiquidGlassController {
         assertSingleCanvasDev();
       }, REFRESH_DEBOUNCE_MS);
     },
+    refreshImmediate() {
+      if (destroyed) return;
+      if (mode === "fallback" || mode === "error") return;
+      if (refreshTimer != null) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      if (instances.length === 0) return;
+      for (const instance of instances) {
+        instance.updateMetrics?.();
+      }
+      adoptRendererCanvas();
+      publishDebug();
+      assertSingleCanvasDev();
+    },
     recapture() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
@@ -510,13 +527,13 @@ export function getFullLiquidGlassOptionConstraints() {
   return {
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
-    refraction: 0.018,
-    aberration: 0.004,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    magnify: 1.012,
+    refraction: 0.024,
+    aberration: 0.005,
+    bevelDepth: 0.12,
+    bevelWidth: 0.22,
+    magnify: 1.02,
     specular: true,
-    frost: 0.25,
+    frost: 0.16,
     tilt: false,
   };
 }

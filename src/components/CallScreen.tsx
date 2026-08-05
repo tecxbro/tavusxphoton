@@ -18,6 +18,7 @@ import {
   LocalCameraSurface,
   type LocalCameraMode,
 } from "./LocalCameraSurface";
+import { SelfViewControlsOverlay } from "./SelfViewControlsOverlay";
 import { SymbolIcon } from "./SymbolIcon";
 import { useAutoHideControls } from "../hooks/useAutoHideControls";
 import { useCallAudio } from "../hooks/useCallAudio";
@@ -28,12 +29,12 @@ import { useLiquidGlass } from "../hooks/useLiquidGlass";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import { useTavusCall } from "../hooks/useTavusCall";
 import {
-  JOIN_MORPH_MS,
   callReducer,
   isActiveCallPhase,
   type CallConfig,
   type CallPhase,
 } from "../lib/callState";
+import { CALL_MOTION, callScreenCssVars } from "../lib/callUi";
 import { hapticTap } from "../lib/haptics";
 
 interface CallScreenProps {
@@ -48,6 +49,13 @@ function localModeFor(
   if (phase === "joining") return "expanded";
   if (phase === "live") return chromeVisible ? "expanded" : "compact";
   return "fullscreen";
+}
+
+function morphDurationFor(mode: LocalCameraMode, phase: CallPhase): number {
+  if (mode === "fullscreen" || phase === "joining") {
+    return CALL_MOTION.joinMs;
+  }
+  return CALL_MOTION.controlMs;
 }
 
 function wantsDebugGlass(): boolean {
@@ -73,6 +81,7 @@ export function CallScreen({ config }: CallScreenProps) {
   const transitionTimers = useRef<number[]>([]);
   // Bumped on every beginCall / end so late media and timers ignore prior work.
   const attemptRef = useRef(0);
+  const connectingStartedAtRef = useRef<number | null>(null);
 
   phaseRef.current = phase;
 
@@ -86,6 +95,7 @@ export function CallScreen({ config }: CallScreenProps) {
     videoEnabled,
     audioEnabled,
     facingMode,
+    flippingCamera,
     toggleVideo,
     toggleAudio,
     flipCamera: flipMediaCamera,
@@ -114,7 +124,6 @@ export function CallScreen({ config }: CallScreenProps) {
     phase === "permission-error" || phase === "connection-error",
   );
 
-  const dragEnabled = phase === "live" && controlsVisible;
   const {
     nodeRef: dragNodeRef,
     position: dragPosition,
@@ -122,8 +131,11 @@ export function CallScreen({ config }: CallScreenProps) {
     onPointerDown: onDragPointerDown,
     onPointerMove: onDragPointerMove,
     onPointerUp: onDragPointerUp,
-  } = useDraggableSelfView(screenRef, dragEnabled, {
+  } = useDraggableSelfView(screenRef, {
+    active: phase === "live",
+    draggable: phase === "live" && controlsVisible,
     compact: !controlsVisible,
+    safeInsets: viewport.safeInsets,
   });
 
   const clearTransitionTimers = useCallback(() => {
@@ -159,6 +171,14 @@ export function CallScreen({ config }: CallScreenProps) {
   useEffect(() => {
     setShowGlassDebug(wantsDebugGlass());
   }, []);
+
+  useEffect(() => {
+    if (phase === "connecting") {
+      connectingStartedAtRef.current = performance.now();
+      return;
+    }
+    connectingStartedAtRef.current = null;
+  }, [phase]);
 
   const beginCall = useCallback(async () => {
     clearTransitionTimers();
@@ -283,8 +303,25 @@ export function CallScreen({ config }: CallScreenProps) {
 
   useFirstVideoFrame(remoteRef, phase === "connecting", () => {
     if (phaseRef.current !== "connecting") return;
-    dispatch({ type: "REMOTE_FRAME" });
-    phaseRef.current = "joining";
+    const started = connectingStartedAtRef.current ?? performance.now();
+    const elapsed = performance.now() - started;
+    const remaining = Math.max(0, CALL_MOTION.connectingMinMs - elapsed);
+    const attempt = attemptRef.current;
+
+    const advance = () => {
+      if (attempt !== attemptRef.current) return;
+      if (phaseRef.current !== "connecting") return;
+      dispatch({ type: "REMOTE_FRAME" });
+      phaseRef.current = "joining";
+    };
+
+    if (remaining === 0) {
+      advance();
+      return;
+    }
+
+    const id = window.setTimeout(advance, remaining);
+    transitionTimers.current.push(id);
   });
 
   useEffect(() => {
@@ -295,7 +332,7 @@ export function CallScreen({ config }: CallScreenProps) {
       if (attempt !== attemptRef.current) return;
       dispatch({ type: "JOIN_COMPLETE" });
       phaseRef.current = "live";
-    }, JOIN_MORPH_MS);
+    }, CALL_MOTION.joinMs);
     transitionTimers.current.push(id);
     return () => {
       window.clearTimeout(id);
@@ -332,10 +369,11 @@ export function CallScreen({ config }: CallScreenProps) {
   }, [showLocal, videoEnabled, backgroundReady]);
 
   const flipCamera = useCallback(() => {
+    if (flippingCamera) return;
     hapticTap();
     bumpControls();
     void flipMediaCamera();
-  }, [bumpControls, flipMediaCamera]);
+  }, [bumpControls, flipMediaCamera, flippingCamera]);
 
   const onSelfPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -346,43 +384,20 @@ export function CallScreen({ config }: CallScreenProps) {
   );
 
   const mode = localModeFor(phase, controlsVisible);
+  const morphDurationMs = morphDurationFor(mode, phase);
   const showChrome =
     isActiveCallPhase(phase) && (phase !== "live" || controlsVisible);
   const showWaitingFlip = phase === "ringing" || phase === "connecting";
   const showLiveExtras = phase === "joining" || phase === "live";
-
-  const [selfRect, setSelfRect] = useState<DOMRect | null>(null);
-
-  useEffect(() => {
-    if (mode === "fullscreen" || dragging) {
-      setSelfRect(null);
-      return;
-    }
-    const node = dragNodeRef.current;
-    if (!node) {
-      setSelfRect(null);
-      return;
-    }
-    setSelfRect(node.getBoundingClientRect());
-  }, [mode, dragging, dragPosition, phase, controlsVisible, viewport, videoEnabled, dragNodeRef]);
-
-  const capsuleVisible =
+  const flipPillVisible =
     showLiveExtras &&
     controlsVisible &&
     mode === "expanded" &&
     videoEnabled &&
     !dragging &&
-    selfRect !== null;
+    !flippingCamera;
 
-  const capsuleStyle = useMemo(() => {
-    if (!selfRect) return undefined;
-    return {
-      top: selfRect.bottom - 48,
-      left: selfRect.left + selfRect.width / 2 - 44,
-    } as CSSProperties;
-  }, [selfRect]);
-
-  const { mode: liquidMode } = useLiquidGlass({
+  const { mode: liquidMode, refreshImmediate } = useLiquidGlass({
     enabled: showLocal,
     backgroundReady: backgroundReady && showLocal,
     phase,
@@ -399,6 +414,11 @@ export function CallScreen({ config }: CallScreenProps) {
       right: "auto",
     } as CSSProperties;
   }, [dragPosition, mode]);
+
+  const screenStyle = useMemo(
+    () => callScreenCssVars(viewport.safeInsets) as CSSProperties,
+    [viewport.safeInsets],
+  );
 
   const chromeVisibleAttr =
     phase === "live" ? (controlsVisible ? "visible" : "hidden") : "visible";
@@ -427,6 +447,7 @@ export function CallScreen({ config }: CallScreenProps) {
       data-chrome={chromeVisibleAttr}
       data-camera={videoEnabled ? "on" : "off"}
       data-liquid-mode={liquidMode}
+      style={screenStyle}
     >
       <div id="liquid-gl-snapshot" className="call-visual-stage">
         <div id="video-stage">
@@ -463,12 +484,13 @@ export function CallScreen({ config }: CallScreenProps) {
             videoEnabled={videoEnabled}
             mirrored={facingMode === "user"}
             mode={mode}
+            morphDurationMs={morphDurationMs}
             selfName="You"
             selfAvatar={config.selfAvatar}
             style={selfStyle}
             nodeRef={dragNodeRef}
             videoRef={localVideoRef}
-            draggable={dragEnabled}
+            draggable={phase === "live" && controlsVisible}
             onPointerDown={onSelfPointerDown}
             onPointerMove={onDragPointerMove}
             onPointerUp={onDragPointerUp}
@@ -477,6 +499,17 @@ export function CallScreen({ config }: CallScreenProps) {
       </div>
 
       <div className="liquid-canvas-layer" aria-hidden="true" />
+
+      {showLocal && (
+        <SelfViewControlsOverlay
+          mode={mode}
+          style={selfStyle}
+          morphDurationMs={morphDurationMs}
+          flipVisible={flipPillVisible}
+          flipDisabled={flippingCamera}
+          onFlip={flipCamera}
+        />
+      )}
 
       {phase === "live" && !controlsVisible && (
         <button
@@ -498,6 +531,7 @@ export function CallScreen({ config }: CallScreenProps) {
           name={config.participantName}
           avatar={config.participantAvatar}
           connecting={phase === "connecting"}
+          onMetricsInvalidate={refreshImmediate}
         />
         <EffectsButton />
 
@@ -517,32 +551,15 @@ export function CallScreen({ config }: CallScreenProps) {
 
         <button
           type="button"
-          className="self-flip-capsule liquidGL"
-          data-visible={capsuleVisible}
-          style={capsuleStyle}
-          aria-hidden={!capsuleVisible}
-          aria-label="Flip camera"
-          title="Flip camera"
-          onClick={flipCamera}
-          data-testid="self-flip"
-          tabIndex={capsuleVisible ? 0 : -1}
-        >
-          <span className="content self-flip-capsule__content">
-            <SymbolIcon name="flip-camera" size={14} />
-            <span>Flip</span>
-          </span>
-        </button>
-
-        <button
-          type="button"
           className="waiting-flip-btn control-btn liquidGL"
           data-visible={showWaitingFlip}
           aria-hidden={!showWaitingFlip}
           aria-label="Switch camera"
           title="Switch camera"
+          disabled={flippingCamera}
           onClick={flipCamera}
           data-testid="waiting-flip"
-          tabIndex={showWaitingFlip ? 0 : -1}
+          tabIndex={showWaitingFlip && !flippingCamera ? 0 : -1}
         >
           <span className="content">
             <SymbolIcon name="flip-camera" />

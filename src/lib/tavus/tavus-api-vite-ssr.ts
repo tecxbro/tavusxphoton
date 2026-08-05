@@ -53,6 +53,10 @@ function safeError(status: number, fallback: string): Response {
 }
 
 export async function handleTavusRequest(request: Request): Promise<Response> {
+  if (process.env.TAVUS_ENABLED === "false") {
+    return safeError(404, "Not found.");
+  }
+
   if (request.method !== "POST") {
     return new Response("Method not allowed", {
       status: 405,

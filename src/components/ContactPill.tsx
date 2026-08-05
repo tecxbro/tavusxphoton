@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { getInitials } from "../lib/callState";
 import { SymbolIcon } from "./SymbolIcon";
 
@@ -5,14 +6,21 @@ interface ContactPillProps {
   name: string;
   avatar: string;
   connecting?: boolean;
+  /** Immediate LiquidGL lens metric update after label/layout commits. */
+  onMetricsInvalidate?: () => void;
 }
 
 export function ContactPill({
   name,
   avatar,
   connecting = false,
+  onMetricsInvalidate,
 }: ContactPillProps) {
   const label = connecting ? "Connecting…" : name;
+
+  useLayoutEffect(() => {
+    onMetricsInvalidate?.();
+  }, [label, onMetricsInvalidate]);
 
   return (
     <div
@@ -29,8 +37,8 @@ export function ContactPill({
             className="contact-pill__avatar"
             src={avatar}
             alt=""
-            width={32}
-            height={32}
+            width={34}
+            height={34}
             onError={(event) => {
               event.currentTarget.style.display = "none";
               const fallback = event.currentTarget.nextElementSibling;

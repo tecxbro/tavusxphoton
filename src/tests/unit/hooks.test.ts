@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useAutoHideControls } from "../../hooks/useAutoHideControls";
 import { useCallTimer } from "../../hooks/useCallTimer";
 import { useMediaDevices } from "../../hooks/useMediaDevices";
+import type { CameraFacing } from "../../lib/callState";
 
 type FakeTrack = MediaStreamTrack & {
   stop: ReturnType<typeof vi.fn>;
@@ -212,6 +213,190 @@ describe("useMediaDevices request lifecycle", () => {
     expect(oldVideo.stop).not.toHaveBeenCalled();
     expect(result.current.stream).toBe(initial);
     expect(result.current.facingMode).toBe("user");
+  });
+
+  it("coalesces rapid Flip presses onto one replacement", async () => {
+    const oldVideo = createFakeTrack("video");
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video");
+    const replacement = createFakeStream([newVideo]);
+
+    let resolveFlip: ((value: MediaStream) => void) | null = null;
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            resolveFlip = resolve;
+          }),
+      );
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((track) => track.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((track) => track.kind === "audio");
+        }
+      },
+    });
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    let first!: Promise<CameraFacing | null>;
+    let second!: Promise<CameraFacing | null>;
+    await act(async () => {
+      first = result.current.flipCamera();
+      second = result.current.flipCamera();
+    });
+
+    expect(getUserMedia).toHaveBeenCalledTimes(2); // permissions + one flip
+
+    await act(async () => {
+      resolveFlip?.(replacement);
+      await Promise.all([first, second]);
+    });
+
+    expect(first).toBe(second);
+    expect(result.current.facingMode).toBe("environment");
+  });
+
+  it("does not attach a late flip after stopAll", async () => {
+    const oldVideo = createFakeTrack("video");
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video");
+    const replacement = createFakeStream([newVideo]);
+
+    let resolveFlip: ((value: MediaStream) => void) | null = null;
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            resolveFlip = resolve;
+          }),
+      );
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((track) => track.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((track) => track.kind === "audio");
+        }
+      },
+    });
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    let pending!: Promise<CameraFacing | null>;
+    await act(async () => {
+      pending = result.current.flipCamera();
+    });
+
+    act(() => {
+      result.current.stopAll();
+    });
+
+    await act(async () => {
+      resolveFlip?.(replacement);
+      await pending;
+    });
+
+    expect(newVideo.stop).toHaveBeenCalled();
+    expect(result.current.stream).toBeNull();
+    expect(result.current.facingMode).toBe("user");
+  });
+
+  it("passes the newly acquired track to beforeAttach before attaching", async () => {
+    const oldVideo = createFakeTrack("video");
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video");
+    const replacement = createFakeStream([newVideo]);
+    const order: string[] = [];
+
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((track) => track.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((track) => track.kind === "audio");
+        }
+      },
+    });
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    await act(async () => {
+      await result.current.flipCamera(async (track) => {
+        order.push("beforeAttach");
+        expect(track).toBe(newVideo);
+        expect(result.current.stream?.getVideoTracks()[0]).toBe(oldVideo);
+      });
+      order.push("afterFlip");
+    });
+
+    expect(order).toEqual(["beforeAttach", "afterFlip"]);
+    expect(result.current.stream?.getVideoTracks()[0]).toBe(newVideo);
+    expect(oldVideo.stop).toHaveBeenCalledTimes(1);
   });
 
   it("stopAll stops every current track", async () => {

@@ -261,4 +261,72 @@ describe("useTavusCall", () => {
     expect(call.join).not.toHaveBeenCalled();
     getUserMedia.mockRestore();
   });
+
+  it("passes the newly acquired camera track to Daily on flip", async () => {
+    type FakeTrack = MediaStreamTrack & { stop: ReturnType<typeof vi.fn> };
+    function createFakeTrack(kind: "audio" | "video"): FakeTrack {
+      return {
+        kind,
+        enabled: true,
+        stop: vi.fn(),
+      } as unknown as FakeTrack;
+    }
+    function createFakeStream(tracks: FakeTrack[]): MediaStream {
+      return {
+        getTracks: () => tracks,
+        getVideoTracks: () => tracks.filter((t) => t.kind === "video"),
+        getAudioTracks: () => tracks.filter((t) => t.kind === "audio"),
+      } as unknown as MediaStream;
+    }
+
+    const oldVideo = createFakeTrack("video");
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video");
+    const replacement = createFakeStream([newVideo]);
+
+    const getUserMedia = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((t) => t.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((t) => t.kind === "audio");
+        }
+      },
+    });
+
+    const call = createMockCall();
+    createCallObject.mockReturnValue(call);
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    await act(async () => {
+      await result.current.flipCamera();
+    });
+
+    expect(call.setInputDevicesAsync).toHaveBeenCalledWith({
+      videoSource: newVideo,
+    });
+    expect(result.current.localStream?.getVideoTracks()[0]).toBe(newVideo);
+    getUserMedia.mockRestore();
+  });
 });
