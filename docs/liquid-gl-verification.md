@@ -52,7 +52,7 @@ Active mode must retain nonzero refraction and low frost. Runtime success is con
 
 ## Apple call symbols
 
-Files in `src/assets/call-symbols/` (do not rename or replace):
+Files in `src/assets/call-symbols/` (do not rename):
 
 ```text
 camera-on.svg
@@ -80,7 +80,9 @@ contact-chevron
 more
 ```
 
-SVGs are imported with `?raw` and rendered inline in `SymbolIcon` with per-symbol optical metrics from `src/lib/symbolMetrics.ts`. Symbols inherit their foreground color from the control's `data-control` / `data-active` state rules.
+Arbitrary SVG path editing remains prohibited. `effects.svg` may be replaced with another untouched SF Symbols export of `f.cursive`; the selected weight, path, and `viewBox` must remain unmodified. Optical translation for the Effects control may not exceed 1px.
+
+SVGs are imported with `?raw` and rendered inline in `SymbolIcon` with per-symbol optical metrics from `src/lib/symbolMetrics.ts`. Metrics keep each glyph’s aspect ratio (`renderedWidth = renderedHeight * (viewBoxWidth / viewBoxHeight)`). Symbols inherit their foreground color from the control's `data-control` / `data-active` state rules.
 
 ## Fallback conditions
 

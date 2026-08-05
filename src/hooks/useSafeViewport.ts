@@ -12,6 +12,11 @@ export interface SafeViewport {
   safeInsets: SafeInsets;
 }
 
+export interface ViewportSize {
+  width: number;
+  height: number;
+}
+
 const ZERO_INSETS: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const IPHONE_TOP_FALLBACK_PX = 47;
 
@@ -46,37 +51,40 @@ function readNativeInsets(): SafeInsets {
 }
 
 /**
- * Spectrum/iMessage hosts on iPhone often report 0 for safe-area-inset-top in
- * fullscreen webviews. Prefer native insets; only apply the 47px fallback in
- * that known portrait phone host mode — never on desktop or in landscape.
+ * Portrait phone viewports in the FaceTime reference size band. Used only when
+ * the host reports a zero native top inset (common in Spectrum/iMessage webviews).
+ */
+export function isReferencePhoneViewport({
+  width,
+  height,
+}: ViewportSize): boolean {
+  return (
+    height > width &&
+    width >= 375 &&
+    width <= 440 &&
+    height >= 800 &&
+    height <= 960
+  );
+}
+
+/**
+ * Prefer native insets. Apply the 47px top fallback only when native top is 0
+ * and the measured viewport matches the reference phone band — never landscape,
+ * desktop-sized, or portrait sizes outside that range.
  */
 export function shouldApplyIphoneTopFallback(
   nativeTop: number,
-  options: {
-    userAgent: string;
-    coarsePointer: boolean;
-    landscape: boolean;
-  } = {
-    userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
-    coarsePointer:
-      typeof window === "undefined"
-        ? false
-        : window.matchMedia("(pointer: coarse)").matches,
-    landscape:
-      typeof window === "undefined"
-        ? false
-        : window.matchMedia("(orientation: landscape)").matches,
-  },
+  viewport: ViewportSize,
 ): boolean {
   if (nativeTop > 0) return false;
-  if (options.landscape) return false;
-  if (!options.coarsePointer) return false;
-  // iPhone/iPod only — do not treat desktop Safari or iPad as this host mode.
-  return /iPhone|iPod/.test(options.userAgent);
+  return isReferencePhoneViewport(viewport);
 }
 
-export function effectiveSafeInsets(native: SafeInsets): SafeInsets {
-  if (!shouldApplyIphoneTopFallback(native.top)) {
+export function effectiveSafeInsets(
+  native: SafeInsets,
+  viewport: ViewportSize,
+): SafeInsets {
+  if (!shouldApplyIphoneTopFallback(native.top, viewport)) {
     return native;
   }
   return { ...native, top: IPHONE_TOP_FALLBACK_PX };
@@ -84,14 +92,16 @@ export function effectiveSafeInsets(native: SafeInsets): SafeInsets {
 
 function readViewport(): SafeViewport {
   const vv = window.visualViewport;
+  const width = vv?.width ?? window.innerWidth;
+  const height = vv?.height ?? window.innerHeight;
   const nativeInsets = readNativeInsets();
   return {
-    width: vv?.width ?? window.innerWidth,
-    height: vv?.height ?? window.innerHeight,
+    width,
+    height,
     offsetTop: vv?.offsetTop ?? 0,
     offsetLeft: vv?.offsetLeft ?? 0,
     nativeInsets,
-    safeInsets: effectiveSafeInsets(nativeInsets),
+    safeInsets: effectiveSafeInsets(nativeInsets, { width, height }),
   };
 }
 

@@ -28,6 +28,7 @@ export const SYMBOL_METRICS: Record<SymbolName, SymbolMetric> = {
   more: { width: 21, height: 4.25 },
   "end-call": { width: 16.5, height: 16.5 },
   "flip-camera": { width: 21, height: 17.25 },
-  effects: { width: 13.5, height: 18 },
+  // viewBox 113.35×150 → width = 18 * (113.35 / 150)
+  effects: { width: 13.6, height: 18 },
   "contact-chevron": { width: 5, height: 17 },
 };
