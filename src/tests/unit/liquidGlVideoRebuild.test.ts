@@ -431,14 +431,18 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
 
     const drawImage = renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>;
     expect(drawImage).toHaveBeenCalled();
-    expect(
-      drawImage.mock.calls.some((args) => args[0] === remote),
-    ).toBe(true);
-    expect(
-      drawImage.mock.calls.some(
-        (args) => args[0] === renderer.staticSnapshotCanvas,
-      ),
-    ).toBe(false);
+
+    // Static snapshot background is drawn FIRST, then the remote video frame
+    // over it — restoring the background avoids the transparent → white hole.
+    const snapshotOrder = drawImage.mock.invocationCallOrder.find(
+      (_, i) => drawImage.mock.calls[i][0] === renderer.staticSnapshotCanvas,
+    );
+    const remoteOrder = drawImage.mock.invocationCallOrder.find(
+      (_, i) => drawImage.mock.calls[i][0] === remote,
+    );
+    expect(snapshotOrder).toBeDefined();
+    expect(remoteOrder).toBeDefined();
+    expect(snapshotOrder!).toBeLessThan(remoteOrder!);
 
     expect(renderer._blitVideoToTexture).toHaveBeenCalled();
     const blitSource = (
