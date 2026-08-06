@@ -5,22 +5,89 @@ export type FlipBeforeAttach = (
   track: MediaStreamTrack,
 ) => void | Promise<void>;
 
+export type CameraFlipResult =
+  | { status: "switched" }
+  | {
+      status: "noop";
+      reason: "no-second-camera" | "same-camera";
+    }
+  | {
+      status: "failed";
+      error: Error;
+    };
+
 export interface MediaDevicesState {
   stream: MediaStream | null;
   videoEnabled: boolean;
   audioEnabled: boolean;
   facingMode: CameraFacing;
+  /** Fatal media / permission acquisition error only. */
   error: string | null;
+  /** Recoverable camera-action (flip) failure; never fatal to the call. */
+  cameraActionError: string | null;
   requesting: boolean;
-  flippingCamera: boolean;
+  isFlippingCamera: boolean;
   requestPermissions: () => Promise<MediaStream | null>;
   toggleVideo: () => boolean;
   toggleAudio: () => boolean;
   setAudioEnabled: (enabled: boolean) => void;
   flipCamera: (
-    beforeAttach?: FlipBeforeAttach,
-  ) => Promise<CameraFacing | null>;
+    replaceVideoTrack?: FlipBeforeAttach,
+  ) => Promise<CameraFlipResult>;
   stopAll: () => void;
+}
+
+type CameraIdentity = {
+  deviceId: string | null;
+  groupId: string | null;
+  facingMode: CameraFacing | null;
+};
+
+function readTrackSettings(
+  track: MediaStreamTrack,
+): MediaTrackSettings {
+  try {
+    return track.getSettings?.() ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function identityFromTrack(track: MediaStreamTrack): CameraIdentity {
+  const settings = readTrackSettings(track);
+  const facing = settings.facingMode;
+  return {
+    deviceId: settings.deviceId || null,
+    groupId: settings.groupId || null,
+    facingMode:
+      facing === "user" || facing === "environment" ? facing : null,
+  };
+}
+
+/**
+ * Same physical camera when both expose nonempty deviceId and they match;
+ * otherwise matching groupId + facingMode. FacingMode alone is not enough.
+ */
+export function isSameCamera(
+  current: MediaStreamTrack,
+  replacement: MediaStreamTrack,
+): boolean {
+  const a = identityFromTrack(current);
+  const b = identityFromTrack(replacement);
+
+  if (a.deviceId && b.deviceId) {
+    return a.deviceId === b.deviceId;
+  }
+
+  if (a.groupId && b.groupId && a.facingMode && b.facingMode) {
+    return a.groupId === b.groupId && a.facingMode === b.facingMode;
+  }
+
+  return false;
+}
+
+function toError(err: unknown, fallback: string): Error {
+  return err instanceof Error ? err : new Error(fallback);
 }
 
 async function getMedia(
@@ -33,14 +100,82 @@ async function getMedia(
   });
 }
 
+async function listVideoInputDeviceIds(): Promise<string[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    return [];
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices
+    .filter((device) => device.kind === "videoinput" && device.deviceId)
+    .map((device) => device.deviceId);
+}
+
+async function acquireReplacementVideoTrack(
+  nextFacing: CameraFacing,
+  currentDeviceId: string | null,
+): Promise<
+  | { status: "track"; track: MediaStreamTrack }
+  | { status: "noop"; reason: "no-second-camera" }
+> {
+  const deviceIds = await listVideoInputDeviceIds();
+
+  // Known single-camera device list → nonfatal no-op (skip getUserMedia).
+  if (deviceIds.length === 1) {
+    return { status: "noop", reason: "no-second-camera" };
+  }
+
+  const alternateDeviceId =
+    deviceIds.length >= 2
+      ? (deviceIds.find((id) => id !== currentDeviceId) ?? null)
+      : null;
+
+  const constraints: MediaTrackConstraints = alternateDeviceId
+    ? { deviceId: { exact: alternateDeviceId } }
+    : { facingMode: nextFacing };
+
+  let replacement: MediaStream;
+  try {
+    replacement = await navigator.mediaDevices.getUserMedia({
+      video: constraints,
+      audio: false,
+    });
+  } catch (err) {
+    // FacingMode-only fallback when exact deviceId fails (common on desktop).
+    if (alternateDeviceId) {
+      replacement = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: nextFacing },
+        audio: false,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  const track = replacement.getVideoTracks()[0];
+  if (!track) {
+    replacement.getTracks().forEach((t) => t.stop());
+    throw new Error("Replacement camera did not provide a video track");
+  }
+
+  // Stop any extra tracks from the temporary stream; we own `track`.
+  replacement.getTracks().forEach((t) => {
+    if (t !== track) t.stop();
+  });
+
+  return { status: "track", track };
+}
+
 export function useMediaDevices(): MediaDevicesState {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [facingMode, setFacingMode] = useState<CameraFacing>("user");
   const [error, setError] = useState<string | null>(null);
+  const [cameraActionError, setCameraActionError] = useState<string | null>(
+    null,
+  );
   const [requesting, setRequesting] = useState(false);
-  const [flippingCamera, setFlippingCamera] = useState(false);
+  const [isFlippingCamera, setIsFlippingCamera] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   // Invalidates overlapping getUserMedia / stopAll work so a superseded
   // permission grant cannot attach after the caller moved on.
@@ -50,7 +185,8 @@ export function useMediaDevices(): MediaDevicesState {
   // Camera flip generation + single-flight — late replacements after stopAll
   // / unmount must not attach, and rapid Flip presses share one promise.
   const flipGenerationRef = useRef(0);
-  const flipInFlightRef = useRef<Promise<CameraFacing | null> | null>(null);
+  const flipInFlightRef = useRef<Promise<CameraFlipResult> | null>(null);
+  const selectedDeviceIdRef = useRef<string | null>(null);
   const videoEnabledRef = useRef(videoEnabled);
   const facingModeRef = useRef(facingMode);
 
@@ -66,6 +202,10 @@ export function useMediaDevices(): MediaDevicesState {
     target?.getTracks().forEach((track) => track.stop());
   }, []);
 
+  const commitSelectedDevice = useCallback((track: MediaStreamTrack) => {
+    selectedDeviceIdRef.current = identityFromTrack(track).deviceId;
+  }, []);
+
   const requestPermissions = useCallback(async () => {
     if (requestInFlight.current) {
       return requestInFlight.current;
@@ -73,6 +213,7 @@ export function useMediaDevices(): MediaDevicesState {
 
     setRequesting(true);
     setError(null);
+    setCameraActionError(null);
     const generation = ++requestGeneration.current;
 
     const pending = (async (): Promise<MediaStream | null> => {
@@ -84,6 +225,8 @@ export function useMediaDevices(): MediaDevicesState {
         }
         stopTracks(streamRef.current);
         attachStream(media);
+        const video = media.getVideoTracks()[0];
+        if (video) commitSelectedDevice(video);
         setFacingMode("user");
         setVideoEnabled(true);
         setAudioEnabled(true);
@@ -106,7 +249,7 @@ export function useMediaDevices(): MediaDevicesState {
 
     requestInFlight.current = pending;
     return pending;
-  }, [attachStream, stopTracks]);
+  }, [attachStream, commitSelectedDevice, stopTracks]);
 
   const toggleVideo = useCallback(() => {
     const current = streamRef.current;
@@ -138,82 +281,157 @@ export function useMediaDevices(): MediaDevicesState {
   }, []);
 
   const flipCamera = useCallback(
-    (beforeAttach?: FlipBeforeAttach): Promise<CameraFacing | null> => {
+    (replaceVideoTrack?: FlipBeforeAttach): Promise<CameraFlipResult> => {
+      // Reject duplicate flips while one is already running (share in-flight).
       if (flipInFlightRef.current) {
         return flipInFlightRef.current;
       }
 
       const current = streamRef.current;
-      if (!current) return Promise.resolve(null);
+      if (!current) {
+        return Promise.resolve({
+          status: "failed",
+          error: new Error("No local stream"),
+        });
+      }
+
+      const oldVideo = current.getVideoTracks()[0];
+      if (!oldVideo) {
+        return Promise.resolve({
+          status: "failed",
+          error: new Error("No local video track"),
+        });
+      }
 
       const generation = ++flipGenerationRef.current;
+      const retainedFacing = facingModeRef.current;
+      const retainedDeviceId =
+        selectedDeviceIdRef.current ?? identityFromTrack(oldVideo).deviceId;
       const nextFacing: CameraFacing =
-        facingModeRef.current === "user" ? "environment" : "user";
+        retainedFacing === "user" ? "environment" : "user";
 
-      setFlippingCamera(true);
+      setIsFlippingCamera(true);
+      setCameraActionError(null);
 
-      const pending = (async (): Promise<CameraFacing | null> => {
+      const pending = (async (): Promise<CameraFlipResult> => {
         let replacementTrack: MediaStreamTrack | null = null;
         try {
-          // 1. Request the new video track.
-          const replacement = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: nextFacing },
-            audio: false,
-          });
+          // Retain current stream / track / facing / selected identity.
+          // Find or request an alternate camera; acquire one replacement track.
+          const acquired = await acquireReplacementVideoTrack(
+            nextFacing,
+            retainedDeviceId,
+          );
 
-          const newVideo = replacement.getVideoTracks()[0];
-          if (!newVideo) {
-            replacement.getTracks().forEach((track) => track.stop());
-            throw new Error("Replacement camera did not provide a video track");
-          }
-          replacementTrack = newVideo;
-
-          // 2. Confirm the generation is current.
           if (generation !== flipGenerationRef.current) {
-            newVideo.stop();
-            return null;
+            if (acquired.status === "track") {
+              acquired.track.stop();
+            }
+            return {
+              status: "failed",
+              error: new Error("Camera flip superseded"),
+            };
           }
 
-          newVideo.enabled = videoEnabledRef.current;
-
-          // 3. Pass that exact track to Daily (optional caller hook).
-          if (beforeAttach) {
-            await beforeAttach(newVideo);
+          if (acquired.status === "noop") {
+            return acquired;
           }
 
-          // 4. Confirm the generation again.
-          if (generation !== flipGenerationRef.current) {
-            newVideo.stop();
-            return null;
+          replacementTrack = acquired.track;
+          replacementTrack.enabled = videoEnabledRef.current;
+
+          // Same-camera detection before touching Daily / local preview.
+          if (isSameCamera(oldVideo, replacementTrack)) {
+            replacementTrack.stop();
+            replacementTrack = null;
+            return { status: "noop", reason: "same-camera" };
           }
 
-          const oldVideo = current.getVideoTracks()[0];
+          // Candidate preview stream — do not mutate or stop the old stream yet.
           const audioTracks = current.getAudioTracks();
-          const combined = new MediaStream([newVideo, ...audioTracks]);
+          const candidate = new MediaStream([
+            replacementTrack,
+            ...audioTracks,
+          ]);
 
-          // 5–7. Attach new stream, preserve audio, stop old video.
-          attachStream(combined);
-          oldVideo?.stop();
+          // Pass that exact replacement track to Daily; wait for success.
+          if (replaceVideoTrack) {
+            await replaceVideoTrack(replacementTrack);
+          }
 
-          // 8–9. Update facing and clear prior camera errors.
-          setFacingMode(nextFacing);
-          setVideoEnabled(newVideo.enabled);
-          setError(null);
-          replacementTrack = null;
+          if (generation !== flipGenerationRef.current) {
+            replacementTrack.stop();
+            replacementTrack = null;
+            return {
+              status: "failed",
+              error: new Error("Camera flip superseded"),
+            };
+          }
 
-          return nextFacing;
+          // Daily accepted — commit local preview.
+          try {
+            attachStream(candidate);
+            commitSelectedDevice(replacementTrack);
+            setFacingMode(
+              identityFromTrack(replacementTrack).facingMode ?? nextFacing,
+            );
+            setVideoEnabled(replacementTrack.enabled);
+            oldVideo.stop();
+            replacementTrack = null;
+            return { status: "switched" };
+          } catch (commitErr) {
+            // Preview commit failed after Daily accepted — attempt rollback.
+            const commitError = toError(
+              commitErr,
+              "Unable to update local camera preview",
+            );
+            try {
+              if (replaceVideoTrack) {
+                await replaceVideoTrack(oldVideo);
+              }
+              replacementTrack.stop();
+              replacementTrack = null;
+              // Retain old local stream / facing / selected identity.
+              setCameraActionError(commitError.message);
+              return { status: "failed", error: commitError };
+            } catch {
+              // Rollback failed — keep replacement as Daily-owned track;
+              // retain candidate for the preview’s next committed update.
+              try {
+                attachStream(candidate);
+                commitSelectedDevice(replacementTrack);
+                setFacingMode(
+                  identityFromTrack(replacementTrack).facingMode ??
+                    nextFacing,
+                );
+                setVideoEnabled(replacementTrack.enabled);
+              } catch {
+                // Last resort: stop tracks that no longer have an owner.
+                replacementTrack.stop();
+              }
+              oldVideo.stop();
+              replacementTrack = null;
+              setCameraActionError(commitError.message);
+              return { status: "failed", error: commitError };
+            }
+          }
         } catch (err) {
           replacementTrack?.stop();
-          if (generation === flipGenerationRef.current) {
-            setError(
-              err instanceof Error ? err.message : "Unable to flip camera",
-            );
+          replacementTrack = null;
+          if (generation !== flipGenerationRef.current) {
+            return {
+              status: "failed",
+              error: new Error("Camera flip superseded"),
+            };
           }
-          return null;
+          // Daily rejection / acquisition failure — retain old everything.
+          const actionError = toError(err, "Unable to flip camera");
+          setCameraActionError(actionError.message);
+          return { status: "failed", error: actionError };
         } finally {
           if (flipInFlightRef.current === pending) {
             flipInFlightRef.current = null;
-            setFlippingCamera(false);
+            setIsFlippingCamera(false);
           }
         }
       })();
@@ -221,7 +439,7 @@ export function useMediaDevices(): MediaDevicesState {
       flipInFlightRef.current = pending;
       return pending;
     },
-    [attachStream],
+    [attachStream, commitSelectedDevice],
   );
 
   const stopAll = useCallback(() => {
@@ -229,7 +447,8 @@ export function useMediaDevices(): MediaDevicesState {
     // Invalidate in-flight flips so late replacement tracks cannot attach.
     flipGenerationRef.current += 1;
     flipInFlightRef.current = null;
-    setFlippingCamera(false);
+    setIsFlippingCamera(false);
+    selectedDeviceIdRef.current = null;
     stopTracks(streamRef.current);
     streamRef.current = null;
     setStream(null);
@@ -250,8 +469,9 @@ export function useMediaDevices(): MediaDevicesState {
     audioEnabled,
     facingMode,
     error,
+    cameraActionError,
     requesting,
-    flippingCamera,
+    isFlippingCamera,
     requestPermissions,
     toggleVideo,
     toggleAudio,

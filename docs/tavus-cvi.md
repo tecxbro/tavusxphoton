@@ -91,6 +91,18 @@ End immediately:
 
 Meeting tokens stay in memory only — never in `localStorage`, URLs, or query params.
 
+## Camera flip
+
+Flip is a recoverable media transaction owned by `useMediaDevices`.
+`useTavusCall.replaceVideoTrack` passes the exact replacement track to Daily
+via `setInputDevicesAsync({ videoSource: track })` and does not stop tracks or
+end the conversation on failure.
+
+Failures (no second camera, same camera, Daily rejection, preview commit) set
+`cameraActionError` only. They must not enter `connection-error`, tear down the
+local stream, or permanently disable Flip (`isFlippingCamera` clears in
+`finally`).
+
 ## Timeouts
 
 | Property | Value | Meaning |

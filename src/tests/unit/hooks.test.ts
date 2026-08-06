@@ -2,18 +2,26 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useAutoHideControls } from "../../hooks/useAutoHideControls";
 import { useCallTimer } from "../../hooks/useCallTimer";
-import { useMediaDevices } from "../../hooks/useMediaDevices";
-import type { CameraFacing } from "../../lib/callState";
+import {
+  isSameCamera,
+  useMediaDevices,
+  type CameraFlipResult,
+} from "../../hooks/useMediaDevices";
 
 type FakeTrack = MediaStreamTrack & {
   stop: ReturnType<typeof vi.fn>;
+  getSettings: ReturnType<typeof vi.fn>;
 };
 
-function createFakeTrack(kind: "audio" | "video"): FakeTrack {
+function createFakeTrack(
+  kind: "audio" | "video",
+  settings: MediaTrackSettings = {},
+): FakeTrack {
   return {
     kind,
     enabled: true,
     stop: vi.fn(),
+    getSettings: vi.fn(() => settings),
   } as unknown as FakeTrack;
 }
 
@@ -23,6 +31,27 @@ function createFakeStream(tracks: FakeTrack[]): MediaStream {
     getVideoTracks: () => tracks.filter((track) => track.kind === "video"),
     getAudioTracks: () => tracks.filter((track) => track.kind === "audio"),
   } as unknown as MediaStream;
+}
+
+function installMediaStreamMock() {
+  Object.defineProperty(globalThis, "MediaStream", {
+    configurable: true,
+    value: class {
+      private tracks: FakeTrack[];
+      constructor(tracks: FakeTrack[] = []) {
+        this.tracks = tracks;
+      }
+      getTracks() {
+        return this.tracks;
+      }
+      getVideoTracks() {
+        return this.tracks.filter((track) => track.kind === "video");
+      }
+      getAudioTracks() {
+        return this.tracks.filter((track) => track.kind === "audio");
+      }
+    },
+  });
 }
 
 describe("useCallTimer", () => {
@@ -135,10 +164,13 @@ describe("useMediaDevices request lifecycle", () => {
   });
 
   it("stops the old video only after a successful flip", async () => {
-    const oldVideo = createFakeTrack("video");
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
     const audio = createFakeTrack("audio");
     const initial = createFakeStream([oldVideo, audio]);
-    const newVideo = createFakeTrack("video");
+    const newVideo = createFakeTrack("video", {
+      deviceId: "back",
+      facingMode: "environment",
+    });
     const replacement = createFakeStream([newVideo]);
 
     const getUserMedia = vi
@@ -148,26 +180,9 @@ describe("useMediaDevices request lifecycle", () => {
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
     });
-    Object.defineProperty(globalThis, "MediaStream", {
-      configurable: true,
-      value: class {
-        private tracks: FakeTrack[];
-        constructor(tracks: FakeTrack[] = []) {
-          this.tracks = tracks;
-        }
-        getTracks() {
-          return this.tracks;
-        }
-        getVideoTracks() {
-          return this.tracks.filter((track) => track.kind === "video");
-        }
-        getAudioTracks() {
-          return this.tracks.filter((track) => track.kind === "audio");
-        }
-      },
-    });
+    installMediaStreamMock();
 
     const { result } = renderHook(() => useMediaDevices());
     await act(async () => {
@@ -176,17 +191,21 @@ describe("useMediaDevices request lifecycle", () => {
 
     expect(oldVideo.stop).not.toHaveBeenCalled();
 
+    let flipResult!: CameraFlipResult;
     await act(async () => {
-      await result.current.flipCamera();
+      flipResult = await result.current.flipCamera();
     });
 
+    expect(flipResult).toEqual({ status: "switched" });
     expect(oldVideo.stop).toHaveBeenCalledTimes(1);
     expect(result.current.facingMode).toBe("environment");
     expect(result.current.stream?.getVideoTracks()[0]).toBe(newVideo);
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBeNull();
   });
 
   it("leaves the old video attached when flip fails", async () => {
-    const oldVideo = createFakeTrack("video");
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
     const audio = createFakeTrack("audio");
     const initial = createFakeStream([oldVideo, audio]);
 
@@ -197,7 +216,7 @@ describe("useMediaDevices request lifecycle", () => {
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
     });
 
     const { result } = renderHook(() => useMediaDevices());
@@ -205,21 +224,144 @@ describe("useMediaDevices request lifecycle", () => {
       await result.current.requestPermissions();
     });
 
+    let flipResult!: CameraFlipResult;
     await act(async () => {
-      const facing = await result.current.flipCamera();
-      expect(facing).toBeNull();
+      flipResult = await result.current.flipCamera();
     });
 
+    expect(flipResult.status).toBe("failed");
     expect(oldVideo.stop).not.toHaveBeenCalled();
     expect(result.current.stream).toBe(initial);
     expect(result.current.facingMode).toBe("user");
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBe("camera busy");
+    expect(result.current.isFlippingCamera).toBe(false);
+  });
+
+  it("returns a nonfatal no-op when only one camera exists", async () => {
+    const oldVideo = createFakeTrack("video", { deviceId: "only" });
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+
+    const getUserMedia = vi.fn().mockResolvedValueOnce(initial);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia,
+        enumerateDevices: vi.fn(async () => [
+          { kind: "videoinput", deviceId: "only" },
+        ]),
+      },
+    });
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    let flipResult!: CameraFlipResult;
+    await act(async () => {
+      flipResult = await result.current.flipCamera();
+    });
+
+    expect(flipResult).toEqual({
+      status: "noop",
+      reason: "no-second-camera",
+    });
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(oldVideo.stop).not.toHaveBeenCalled();
+    expect(result.current.stream).toBe(initial);
+    expect(result.current.facingMode).toBe("user");
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBeNull();
+    expect(result.current.isFlippingCamera).toBe(false);
+  });
+
+  it("returns a nonfatal same-camera no-op and stops the redundant track", async () => {
+    const oldVideo = createFakeTrack("video", { deviceId: "cam-1" });
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const sameVideo = createFakeTrack("video", { deviceId: "cam-1" });
+    const replacement = createFakeStream([sameVideo]);
+
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
+    });
+    installMediaStreamMock();
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    let flipResult!: CameraFlipResult;
+    await act(async () => {
+      flipResult = await result.current.flipCamera();
+    });
+
+    expect(flipResult).toEqual({ status: "noop", reason: "same-camera" });
+    expect(sameVideo.stop).toHaveBeenCalledTimes(1);
+    expect(oldVideo.stop).not.toHaveBeenCalled();
+    expect(result.current.stream).toBe(initial);
+    expect(result.current.facingMode).toBe("user");
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBeNull();
+  });
+
+  it("keeps the old stream when Daily rejects the replacement", async () => {
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video", { deviceId: "back" });
+    const replacement = createFakeStream([newVideo]);
+
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
+    });
+    installMediaStreamMock();
+
+    const { result } = renderHook(() => useMediaDevices());
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    let flipResult!: CameraFlipResult;
+    await act(async () => {
+      flipResult = await result.current.flipCamera(async () => {
+        throw new Error("Daily refused track");
+      });
+    });
+
+    expect(flipResult.status).toBe("failed");
+    if (flipResult.status === "failed") {
+      expect(flipResult.error.message).toBe("Daily refused track");
+    }
+    expect(newVideo.stop).toHaveBeenCalledTimes(1);
+    expect(oldVideo.stop).not.toHaveBeenCalled();
+    expect(result.current.stream).toBe(initial);
+    expect(result.current.facingMode).toBe("user");
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBe("Daily refused track");
+    expect(result.current.isFlippingCamera).toBe(false);
   });
 
   it("coalesces rapid Flip presses onto one replacement", async () => {
-    const oldVideo = createFakeTrack("video");
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
     const audio = createFakeTrack("audio");
     const initial = createFakeStream([oldVideo, audio]);
-    const newVideo = createFakeTrack("video");
+    const newVideo = createFakeTrack("video", { deviceId: "back" });
     const replacement = createFakeStream([newVideo]);
 
     let resolveFlip: ((value: MediaStream) => void) | null = null;
@@ -235,34 +377,17 @@ describe("useMediaDevices request lifecycle", () => {
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
     });
-    Object.defineProperty(globalThis, "MediaStream", {
-      configurable: true,
-      value: class {
-        private tracks: FakeTrack[];
-        constructor(tracks: FakeTrack[] = []) {
-          this.tracks = tracks;
-        }
-        getTracks() {
-          return this.tracks;
-        }
-        getVideoTracks() {
-          return this.tracks.filter((track) => track.kind === "video");
-        }
-        getAudioTracks() {
-          return this.tracks.filter((track) => track.kind === "audio");
-        }
-      },
-    });
+    installMediaStreamMock();
 
     const { result } = renderHook(() => useMediaDevices());
     await act(async () => {
       await result.current.requestPermissions();
     });
 
-    let first!: Promise<CameraFacing | null>;
-    let second!: Promise<CameraFacing | null>;
+    let first!: Promise<CameraFlipResult>;
+    let second!: Promise<CameraFlipResult>;
     await act(async () => {
       first = result.current.flipCamera();
       second = result.current.flipCamera();
@@ -280,10 +405,10 @@ describe("useMediaDevices request lifecycle", () => {
   });
 
   it("does not attach a late flip after stopAll", async () => {
-    const oldVideo = createFakeTrack("video");
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
     const audio = createFakeTrack("audio");
     const initial = createFakeStream([oldVideo, audio]);
-    const newVideo = createFakeTrack("video");
+    const newVideo = createFakeTrack("video", { deviceId: "back" });
     const replacement = createFakeStream([newVideo]);
 
     let resolveFlip: ((value: MediaStream) => void) | null = null;
@@ -299,33 +424,16 @@ describe("useMediaDevices request lifecycle", () => {
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
     });
-    Object.defineProperty(globalThis, "MediaStream", {
-      configurable: true,
-      value: class {
-        private tracks: FakeTrack[];
-        constructor(tracks: FakeTrack[] = []) {
-          this.tracks = tracks;
-        }
-        getTracks() {
-          return this.tracks;
-        }
-        getVideoTracks() {
-          return this.tracks.filter((track) => track.kind === "video");
-        }
-        getAudioTracks() {
-          return this.tracks.filter((track) => track.kind === "audio");
-        }
-      },
-    });
+    installMediaStreamMock();
 
     const { result } = renderHook(() => useMediaDevices());
     await act(async () => {
       await result.current.requestPermissions();
     });
 
-    let pending!: Promise<CameraFacing | null>;
+    let pending!: Promise<CameraFlipResult>;
     await act(async () => {
       pending = result.current.flipCamera();
     });
@@ -344,11 +452,11 @@ describe("useMediaDevices request lifecycle", () => {
     expect(result.current.facingMode).toBe("user");
   });
 
-  it("passes the newly acquired track to beforeAttach before attaching", async () => {
-    const oldVideo = createFakeTrack("video");
+  it("passes the newly acquired track to replaceVideoTrack before attaching", async () => {
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
     const audio = createFakeTrack("audio");
     const initial = createFakeStream([oldVideo, audio]);
-    const newVideo = createFakeTrack("video");
+    const newVideo = createFakeTrack("video", { deviceId: "back" });
     const replacement = createFakeStream([newVideo]);
     const order: string[] = [];
 
@@ -359,26 +467,9 @@ describe("useMediaDevices request lifecycle", () => {
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia },
+      value: { getUserMedia, enumerateDevices: vi.fn(async () => []) },
     });
-    Object.defineProperty(globalThis, "MediaStream", {
-      configurable: true,
-      value: class {
-        private tracks: FakeTrack[];
-        constructor(tracks: FakeTrack[] = []) {
-          this.tracks = tracks;
-        }
-        getTracks() {
-          return this.tracks;
-        }
-        getVideoTracks() {
-          return this.tracks.filter((track) => track.kind === "video");
-        }
-        getAudioTracks() {
-          return this.tracks.filter((track) => track.kind === "audio");
-        }
-      },
-    });
+    installMediaStreamMock();
 
     const { result } = renderHook(() => useMediaDevices());
     await act(async () => {
@@ -407,6 +498,7 @@ describe("useMediaDevices request lifecycle", () => {
       configurable: true,
       value: {
         getUserMedia: vi.fn().mockResolvedValue(stream),
+        enumerateDevices: vi.fn(async () => []),
       },
     });
 
@@ -422,6 +514,35 @@ describe("useMediaDevices request lifecycle", () => {
     expect(video.stop).toHaveBeenCalledTimes(1);
     expect(audio.stop).toHaveBeenCalledTimes(1);
     expect(result.current.stream).toBeNull();
+  });
+});
+
+describe("isSameCamera", () => {
+  it("matches on deviceId when both are nonempty", () => {
+    const a = createFakeTrack("video", { deviceId: "a", facingMode: "user" });
+    const b = createFakeTrack("video", {
+      deviceId: "a",
+      facingMode: "environment",
+    });
+    expect(isSameCamera(a, b)).toBe(true);
+  });
+
+  it("does not treat matching facingMode alone as the same camera", () => {
+    const a = createFakeTrack("video", { facingMode: "user" });
+    const b = createFakeTrack("video", { facingMode: "user" });
+    expect(isSameCamera(a, b)).toBe(false);
+  });
+
+  it("falls back to groupId + facingMode when deviceId is missing", () => {
+    const a = createFakeTrack("video", {
+      groupId: "g1",
+      facingMode: "user",
+    });
+    const b = createFakeTrack("video", {
+      groupId: "g1",
+      facingMode: "user",
+    });
+    expect(isSameCamera(a, b)).toBe(true);
   });
 });
 

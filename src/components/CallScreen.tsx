@@ -97,12 +97,14 @@ export function CallScreen({ config }: CallScreenProps) {
     videoEnabled,
     audioEnabled,
     facingMode,
-    flippingCamera,
+    isFlippingCamera,
     toggleVideo,
     toggleAudio,
+    replaceVideoTrack,
     flipCamera: flipMediaCamera,
     palJoined,
     error: callError,
+    cameraActionError,
     starting,
   } = useTavusCall();
 
@@ -250,6 +252,8 @@ export function CallScreen({ config }: CallScreenProps) {
   }, [palJoined]);
 
   useEffect(() => {
+    // Fatal connection / Tavus / Daily / initial-media errors only.
+    // cameraActionError must never enter this path.
     if (!callError) return;
     if (
       phaseRef.current === "ringing" ||
@@ -371,11 +375,13 @@ export function CallScreen({ config }: CallScreenProps) {
   }, [showLocal, videoEnabled, backgroundReady]);
 
   const flipCamera = useCallback(() => {
-    if (flippingCamera) return;
+    // Disable only while a flip transaction is in flight.
+    if (isFlippingCamera) return;
     hapticTap();
     bumpControls();
-    void flipMediaCamera();
-  }, [bumpControls, flipMediaCamera, flippingCamera]);
+    // Transaction owns recovery; supply Daily attachment from useTavusCall.
+    void flipMediaCamera(replaceVideoTrack);
+  }, [bumpControls, flipMediaCamera, isFlippingCamera, replaceVideoTrack]);
 
   const onSelfPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -397,7 +403,7 @@ export function CallScreen({ config }: CallScreenProps) {
     mode === "expanded" &&
     videoEnabled &&
     !dragging &&
-    !flippingCamera;
+    !isFlippingCamera;
 
   const flipOverlayRef = useRef<HTMLDivElement | null>(null);
 
@@ -531,7 +537,7 @@ export function CallScreen({ config }: CallScreenProps) {
           style={selfStyle}
           overlayRef={flipOverlayRef}
           flipVisible={flipPillVisible}
-          flipDisabled={flippingCamera}
+          flipDisabled={isFlippingCamera}
           onFlip={flipCamera}
         />
       )}
@@ -581,10 +587,10 @@ export function CallScreen({ config }: CallScreenProps) {
           aria-hidden={!showWaitingFlip}
           aria-label="Switch camera"
           title="Switch camera"
-          disabled={flippingCamera}
+          disabled={isFlippingCamera}
           onClick={flipCamera}
           data-testid="waiting-flip"
-          tabIndex={showWaitingFlip && !flippingCamera ? 0 : -1}
+          tabIndex={showWaitingFlip && !isFlippingCamera ? 0 : -1}
         >
           <span className="content">
             <SymbolIcon name="flip-camera" />
@@ -614,6 +620,17 @@ export function CallScreen({ config }: CallScreenProps) {
           }}
         />
       )}
+
+      {cameraActionError && isActiveCallPhase(phase) ? (
+        <div
+          className="camera-action-toast"
+          role="status"
+          aria-live="polite"
+          data-testid="camera-action-error"
+        >
+          {cameraActionError}
+        </div>
+      ) : null}
 
       {phase === "ended" && (
         <EndedScreen

@@ -11,7 +11,11 @@ import {
   createTavusConversation,
   endTavusConversation,
 } from "../lib/tavus/tavus-client";
-import { useMediaDevices } from "./useMediaDevices";
+import {
+  useMediaDevices,
+  type CameraFlipResult,
+  type FlipBeforeAttach,
+} from "./useMediaDevices";
 
 export interface UseTavusCallResult {
   startCall: () => Promise<void>;
@@ -23,12 +27,23 @@ export interface UseTavusCallResult {
   videoEnabled: boolean;
   audioEnabled: boolean;
   facingMode: CameraFacing;
-  flippingCamera: boolean;
+  isFlippingCamera: boolean;
   toggleVideo: () => boolean;
   toggleAudio: () => boolean;
-  flipCamera: () => Promise<CameraFacing | null>;
+  /** Pass the exact acquired track to Daily. Does not stop tracks. */
+  replaceVideoTrack: (track: MediaStreamTrack) => Promise<void>;
+  /**
+   * Runs the media-owned flip transaction. CallScreen may supply
+   * `replaceVideoTrack`; defaults to the Daily attachment from this hook.
+   */
+  flipCamera: (
+    replaceVideoTrack?: FlipBeforeAttach,
+  ) => Promise<CameraFlipResult>;
   palJoined: boolean;
+  /** Fatal connection / permission / Daily errors only. */
   error: string | null;
+  /** Recoverable camera-action failures; must not end the call. */
+  cameraActionError: string | null;
   starting: boolean;
 }
 
@@ -64,8 +79,9 @@ export function useTavusCall(): UseTavusCallResult {
     videoEnabled,
     audioEnabled,
     facingMode,
-    flippingCamera,
+    isFlippingCamera,
     error: mediaError,
+    cameraActionError,
     requestPermissions,
     toggleVideo: toggleMediaVideo,
     toggleAudio: toggleMediaAudio,
@@ -426,20 +442,28 @@ export function useTavusCall(): UseTavusCallResult {
     return enabled;
   }, [toggleMediaAudio]);
 
-  const flipCamera = useCallback(async () => {
-    // Pass the newly acquired track directly to Daily before attach — never
-    // re-read localStream for the replacement track.
-    return flipMediaCamera(async (track) => {
+  const replaceVideoTrack = useCallback(
+    async (track: MediaStreamTrack): Promise<void> => {
       const call = callRef.current;
-      if (call && !call.isDestroyed()) {
-        try {
-          await call.setInputDevicesAsync({ videoSource: track });
-        } catch {
-          // UI flip still proceeds; Daily keeps prior camera if update fails.
-        }
+      if (!call || call.isDestroyed()) {
+        return;
       }
-    });
-  }, [flipMediaCamera]);
+      // Pass the supplied track directly — do not acquire or stop tracks here.
+      // Let Daily rejection reach the camera transaction; do not end the call.
+      await call.setInputDevicesAsync({
+        videoSource: track,
+      });
+    },
+    [],
+  );
+
+  const flipCamera = useCallback(
+    (attach: FlipBeforeAttach = replaceVideoTrack) => {
+      // Transaction lives in useMediaDevices; Daily attachment is supplied.
+      return flipMediaCamera(attach);
+    },
+    [flipMediaCamera, replaceVideoTrack],
+  );
 
   useEffect(() => {
     return () => {
@@ -467,12 +491,15 @@ export function useTavusCall(): UseTavusCallResult {
     videoEnabled,
     audioEnabled,
     facingMode,
-    flippingCamera,
+    isFlippingCamera,
     toggleVideo,
     toggleAudio,
+    replaceVideoTrack,
     flipCamera,
     palJoined,
+    // Never fold cameraActionError into fatal call error.
     error: error || mediaError,
+    cameraActionError,
     starting,
   };
 }

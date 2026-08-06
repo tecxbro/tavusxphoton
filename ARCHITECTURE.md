@@ -109,7 +109,7 @@ No browser unload End / beacon.
 
 ### Stale media attempts
 
-`attemptRef` in `CallScreen` and `requestGeneration` in `useMediaDevices` invalidate overlapping `beginCall` / `getUserMedia` / flip work. Late streams are stopped and discarded.
+`attemptRef` in `CallScreen` and `requestGeneration` in `useMediaDevices` invalidate overlapping `beginCall` / `getUserMedia` / flip work. Late streams are stopped and discarded. Camera flip failures use `cameraActionError` (recoverable) and never the fatal media / connection error path.
 
 ### Local camera stays mounted
 
