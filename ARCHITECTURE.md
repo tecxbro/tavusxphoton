@@ -125,7 +125,7 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 ### LiquidGL pin and patch
 
-`liquid-gl@2.0.1` is exact-pinned; `patches/liquid-gl+2.0.1.patch` is applied via `patch-package`. The patched renderer owns dynamic-video rescan, stale destination cleanup, and opacity-aware compositing into one shared WebGL canvas (adopted into `.liquid-canvas-layer`). App code calls `syncVideoLayout()` after committed phase / layout / camera changes (`useLayoutEffect`) to run `_syncDynamicVideos()` plus one immediate lens-metric pass — no snapshot, no delayed recapture wait. Debounced `recapture()` remains for settled static DOM. CSS frosted fallback runs when WebGL is missing, init fails, reduced transparency is preferred, or `__miniPhoForceGlassFallback__` is set. See `docs/liquid-gl-verification.md`.
+`liquid-gl@2.0.1` is exact-pinned; `patches/liquid-gl+2.0.1.patch` is applied via `patch-package`. The patched renderer rescans eligible `<video>` nodes each `_updateDynamicVideos()` tick, composites them with opacity-aware blits into one shared WebGL canvas (adopted into `.liquid-canvas-layer`), and exposes `_rebuildDynamicVideoTexture()` for post-snapshot rebuilds. Phase / layout / camera commits only call `refreshImmediate()` (lens metrics). Self-view morph frames also update metrics only; morph `onFinish` schedules one debounced `recapture()` (await snapshot, then rebuild videos). Camera-off, visibility, and orientation still recapture. CSS frosted fallback runs when WebGL is missing, init fails, reduced transparency is preferred, or `__miniPhoForceGlassFallback__` is set. See `docs/liquid-gl-verification.md`.
 
 ### Tavus secrets
 

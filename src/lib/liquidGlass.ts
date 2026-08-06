@@ -17,8 +17,8 @@ export interface LiquidGlassController {
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
   /**
-   * Immediate video-texture rebuild + one lens-metric pass after a committed
-   * layout change. Calls `_rebuildDynamicVideoTexture()` — no snapshot.
+   * Rebuild videos from the current static base + one lens-metric pass.
+   * Used after a completed snapshot — not during FLIP morph frames.
    * Callers must not immediately follow with `refreshImmediate()`.
    */
   rebuildVideoTexture(): void;

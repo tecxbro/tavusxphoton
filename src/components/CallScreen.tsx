@@ -410,7 +410,6 @@ export function CallScreen({ config }: CallScreenProps) {
   const {
     mode: liquidMode,
     refreshImmediate,
-    rebuildVideoTexture,
     recapture,
   } = useLiquidGlass({
     enabled: showLocal,
@@ -422,20 +421,20 @@ export function CallScreen({ config }: CallScreenProps) {
   });
 
   const finishSelfViewMorph = useCallback(() => {
-    rebuildVideoTexture();
+    // One settled snapshot + video rebuild after morph transforms clear.
     recapture();
-  }, [rebuildVideoTexture, recapture]);
+  }, [recapture]);
 
   // CallScreen owns the only self-view morph: local camera primary, Flip
-  // overlay follower (outside #liquid-gl-snapshot). rebuildVideoTexture already
-  // includes one metric pass — do not add refreshImmediate beside start/frame.
-  // Do not call captureSnapshot()/recapture() during onStart or onFrame.
+  // overlay follower (outside #liquid-gl-snapshot). Morph frames update lens
+  // metrics only — never rebuild/recapture mid-FLIP (stale static wipe +
+  // transformed rects turn glass white/black).
   useLayoutMorph(dragNodeRef, {
     activeKey: mode,
     durationMs: morphDurationMs,
     followers: [flipOverlayRef],
-    onStart: rebuildVideoTexture,
-    onFrame: rebuildVideoTexture,
+    onStart: refreshImmediate,
+    onFrame: refreshImmediate,
     onFinish: finishSelfViewMorph,
   });
 

@@ -21,7 +21,7 @@ export interface UseLiquidGlassResult {
   error: string | null;
   refresh: () => void;
   refreshImmediate: () => void;
-  /** Immediate video-texture rebuild after a committed layout change. */
+  /** Post-snapshot video-texture rebuild (not for morph frames). */
   rebuildVideoTexture: () => void;
   /** Debounced background recapture for settled static DOM changes. */
   recapture: () => void;
@@ -102,21 +102,20 @@ export function useLiquidGlass({
     };
   }, [enabled, backgroundReady]);
 
-  // After committed phase / layout / camera DOM changes: rebuild video texture
-  // from the current static base + one lens-metric pass. Not a snapshot.
-  // Do not follow with refreshImmediate().
+  // Phase / layout / camera commits: lens metrics only. Video eligibility is
+  // rescanned by the renderer RAF loop; settled snapshots come from morph
+  // finish / camera-off / visibility — never a mid-morph full texture wipe.
   useLayoutEffect(() => {
-    controllerRef.current?.rebuildVideoTexture();
+    controllerRef.current?.refreshImmediate();
   }, [phase, layoutMode, videoEnabled]);
 
-  // Lens metric updates for chrome fade (rebuildVideoTexture already covers
-  // phase / layoutMode / videoEnabled).
+  // Lens metric updates for chrome fade.
   useEffect(() => {
     controllerRef.current?.refresh();
   }, [controlsVisible]);
 
-  // Recapture only the camera-off static state. Phase changes must not start
-  // an asynchronous snapshot while the pickup morph is active.
+  // Recapture only the camera-off static state. Do not recapture on joining/
+  // live — pickup morph onFinish owns that settled snapshot.
   useEffect(() => {
     if (!videoEnabled) {
       controllerRef.current?.recapture();

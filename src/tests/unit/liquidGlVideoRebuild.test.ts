@@ -319,7 +319,7 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
     ).toBe(false);
   });
 
-  it("rescans newly added videos and excludes ignored ones", () => {
+  it("rescans newly added videos and excludes ignored ones via rebuild", () => {
     expect(renderer._videoNodes).toEqual([]);
 
     const live = document.createElement("video");
@@ -337,6 +337,46 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
 
     expect(renderer._videoNodes).toEqual([live]);
     expect(renderer._videoNodes).not.toContain(ignored);
+  });
+
+  it("rescans newly eligible videos from _updateDynamicVideos alone", () => {
+    expect(renderer._videoNodes).toEqual([]);
+
+    const remote = document.createElement("video");
+    stage.append(remote);
+    prepareVideo(remote, {
+      ignored: true,
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+
+    renderer._updateDynamicVideos();
+    expect(renderer._videoNodes).toEqual([]);
+
+    prepareVideo(remote, {
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+    renderer._updateDynamicVideos();
+
+    expect(renderer._videoNodes).toEqual([remote]);
+  });
+
+  it("removes ignored videos from the active list on the next update pass", () => {
+    const local = document.createElement("video");
+    stage.append(local);
+    prepareVideo(local, {
+      rect: { left: 0, top: 0, width: 100, height: 100 },
+    });
+
+    renderer._updateDynamicVideos();
+    expect(renderer._videoNodes).toEqual([local]);
+
+    prepareVideo(local, {
+      ignored: true,
+      rect: { left: 0, top: 0, width: 100, height: 100 },
+    });
+    renderer._updateDynamicVideos();
+
+    expect(renderer._videoNodes).toEqual([]);
   });
 
   it("clears _videoFrameState before drawing", () => {

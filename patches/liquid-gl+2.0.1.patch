@@ -1,8 +1,8 @@
 diff --git a/node_modules/liquid-gl/liquidGL.js b/node_modules/liquid-gl/liquidGL.js
-index e5e90cf..53c2618 100644
+index e5e90cf..448e6bb 100644
 --- a/node_modules/liquid-gl/liquidGL.js
 +++ b/node_modules/liquid-gl/liquidGL.js
-@@ -2700,8 +2700,190 @@ const liquidGL = (() => {
+@@ -2700,8 +2700,193 @@ const liquidGL = (() => {
        gl.uniform1i(this.u.tex, 0);
      }
  
@@ -189,11 +189,14 @@ index e5e90cf..53c2618 100644
 +
      /* ----------------------------- */
      _updateDynamicVideos() {
++      this._videoNodes = Array.from(
++        this.snapshotTarget.querySelectorAll("video"),
++      ).filter((video) => !this._isIgnored(video));
 +
        if (this._isScrolling && this._scrollUpdateCounter % 2 !== 0) return;
        if (
          !this.texture ||
-@@ -2733,8 +2915,44 @@ const liquidGL = (() => {
+@@ -2733,8 +2918,44 @@ const liquidGL = (() => {
  
          if (drawW <= 0 || drawH <= 0) return;
  
@@ -239,7 +242,7 @@ index e5e90cf..53c2618 100644
          const prevState = this._videoFrameState.get(vid);
          if (
            prevState &&
-@@ -2789,15 +3007,42 @@ const liquidGL = (() => {
+@@ -2789,15 +3010,42 @@ const liquidGL = (() => {
          };
          const isRounded = Object.values(scaledRadii).some((r) => r > 0);
  
@@ -286,7 +289,7 @@ index e5e90cf..53c2618 100644
            })
          ) {
            return;
-@@ -2837,7 +3082,25 @@ const liquidGL = (() => {
+@@ -2837,7 +3085,25 @@ const liquidGL = (() => {
              drawH,
            );
  

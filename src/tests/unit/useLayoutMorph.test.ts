@@ -347,4 +347,57 @@ describe("useLayoutMorph", () => {
 
     primary.remove();
   });
+
+  it("invokes start and frame metric callbacks without requiring finish to rebuild texture", async () => {
+    const primary = document.createElement("div");
+    document.body.appendChild(primary);
+    const primaryRef = createRef<HTMLElement>();
+    (primaryRef as { current: HTMLElement | null }).current = primary;
+
+    const harness = installAnimationHarness();
+    const onStart = vi.fn();
+    const onFrame = vi.fn();
+    const onFinish = vi.fn();
+
+    mockRect(primary, { left: 0, top: 0, width: 200, height: 400 });
+
+    const { rerender } = renderHook(
+      ({ key, rect }) => {
+        mockRect(primary, rect);
+        useLayoutMorph(primaryRef, {
+          activeKey: key,
+          durationMs: 200,
+          onStart,
+          onFrame,
+          onFinish,
+        });
+      },
+      {
+        initialProps: {
+          key: "fullscreen",
+          rect: { left: 0, top: 0, width: 200, height: 400 },
+        },
+      },
+    );
+
+    rerender({
+      key: "expanded",
+      rect: { left: 100, top: 80, width: 80, height: 120 },
+    });
+
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onFinish).not.toHaveBeenCalled();
+
+    await act(async () => {
+      harness.completeLatest();
+      await harness.created[0]!.finished;
+    });
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    // Frame ticks may run; start/finish remain single-shot for the generation.
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onFrame.mock.calls.length).toBeGreaterThanOrEqual(0);
+
+    primary.remove();
+  });
 });

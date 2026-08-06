@@ -114,7 +114,7 @@ describe("useLiquidGlass", () => {
     expect(document.documentElement.dataset.liquidChrome).toBe("hidden");
   });
 
-  it("rebuilds video on camera off immediately and schedules one settled recapture", async () => {
+  it("schedules one settled recapture on camera off without a mid-toggle rebuild", async () => {
     vi.useFakeTimers();
     mockActiveRenderer();
     const { rerender, result } = renderHook((input: HookInput) =>
@@ -129,10 +129,17 @@ describe("useLiquidGlass", () => {
     rebuild.mockClear();
     (renderer!.captureSnapshot as ReturnType<typeof vi.fn>).mockClear();
 
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    updateMetrics?.mockClear();
+
     rerender(baseInput({ backgroundReady: true, videoEnabled: false }));
 
-    // useLayoutEffect rebuild runs synchronously — before debounced recapture.
-    expect(rebuild).toHaveBeenCalledTimes(1);
+    // Phase/layout/camera commits only refresh lens metrics immediately.
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
     expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
     expect(typeof result.current.rebuildVideoTexture).toBe("function");
     expect(typeof result.current.recapture).toBe("function");
@@ -145,7 +152,7 @@ describe("useLiquidGlass", () => {
     vi.useRealTimers();
   });
 
-  it("rebuilds video on phase and layoutMode commits without capturing a snapshot", () => {
+  it("refreshes lens metrics on phase and layoutMode commits without rebuild or snapshot", () => {
     mockActiveRenderer();
     const { rerender } = renderHook((input: HookInput) =>
       useLiquidGlass(input),
@@ -159,6 +166,12 @@ describe("useLiquidGlass", () => {
     rebuild.mockClear();
     (renderer!.captureSnapshot as ReturnType<typeof vi.fn>).mockClear();
 
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    updateMetrics?.mockClear();
+
     rerender(
       baseInput({
         backgroundReady: true,
@@ -167,8 +180,8 @@ describe("useLiquidGlass", () => {
       }),
     );
 
-    // phase + layoutMode both changed in one commit → one layout effect pass
-    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    expect(rebuild).not.toHaveBeenCalled();
     expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
   });
 
