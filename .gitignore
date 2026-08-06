@@ -32,3 +32,21 @@ blob-report
 *.njsproj
 *.sln
 *.sw?
+
+# Pho UI-test sidecar (local only — do not push)
+api/_lib/
+api/test-call/
+api/tests/phoTestApi.test.ts
+scripts/phoTestApiPlugin.ts
+docs/mini-pho-test-controller.md
+src/components/PhoCallScreen.tsx
+src/components/PhoController.tsx
+src/contracts/
+src/hooks/usePhoTestCommands.ts
+src/lib/callBackend.ts
+src/lib/phoCallState.ts
+src/lib/phoTestControllerClient.ts
+src/styles/controller.css
+src/tests/unit/phoCallState.test.ts
+src/tests/unit/phoTestCommands.test.ts
+src/tests/unit/phoTestControllerClient.test.ts
