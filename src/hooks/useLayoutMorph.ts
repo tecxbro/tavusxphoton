@@ -44,6 +44,9 @@ export function useLayoutMorph(
   const followersRef = useRef(followers);
   followersRef.current = followers;
 
+  const durationRef = useRef(durationMs);
+  durationRef.current = durationMs;
+
   const previousKeyRef = useRef(activeKey);
   const previousRectRef = useRef<DOMRect | null>(null);
   const generationRef = useRef(0);
@@ -127,7 +130,7 @@ export function useLayoutMorph(
       },
     ];
     const timing: KeyframeEffectOptions = {
-      duration: durationMs,
+      duration: durationRef.current,
       easing: EASE_OUT_EXPO,
       fill: "both",
     };
@@ -183,5 +186,5 @@ export function useLayoutMorph(
         rafRef.current = null;
       }
     };
-  }, [activeKey, durationMs, primaryRef]);
+  }, [activeKey, primaryRef]);
 }

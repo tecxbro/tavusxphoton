@@ -1,225 +1,12 @@
 diff --git a/node_modules/liquid-gl/liquidGL.js b/node_modules/liquid-gl/liquidGL.js
-index e5e90cf..ff958fb 100644
+index e5e90cf..53c2618 100644
 --- a/node_modules/liquid-gl/liquidGL.js
 +++ b/node_modules/liquid-gl/liquidGL.js
-@@ -1905,14 +1905,19 @@ const liquidGL = (() => {
-       /* --------------------------------------------------
-        *  Dynamic media (video) support
-        * ------------------------------------------------*/
-+      // Keep ignored / not-ready videos in the list so cleanup can restore
-+      // their previous destinations when eligibility changes.
-       this._videoNodes = Array.from(
-         this.snapshotTarget.querySelectorAll("video"),
-       );
--      this._videoNodes = this._videoNodes.filter((v) => !this._isIgnored(v));
-       this._tmpCanvas = document.createElement("canvas");
-       this._tmpCtx = this._tmpCanvas.getContext("2d");
- 
-       this._videoFrameState = new WeakMap();
-+      /** @type {Map<HTMLVideoElement, {x:number,y:number,w:number,h:number}>} */
-+      this._lastVideoDestinations = new Map();
-+      /** @type {Array<{x:number,y:number,w:number,h:number}>} */
-+      this._videoDirtyRects = [];
- 
-       this._videoAlphaState = new WeakMap();
- 
-@@ -2347,7 +2352,8 @@ const liquidGL = (() => {
-       this.textureWidth = srcCanvas.width;
-       this.textureHeight = srcCanvas.height;
- 
--      if (this._videoFrameState) this._videoFrameState = new WeakMap();
-+      // A complete snapshot supersedes all previously tracked destinations.
-+      this._clearDynamicVideoState();
- 
-       this._vFboTexture = null;
- 
-@@ -2398,7 +2404,7 @@ const liquidGL = (() => {
-       const time = (Date.now() - this.startTime) / 1000;
-       gl.uniform1f(this.u.time, time);
- 
--      this._updateDynamicVideos();
-+      this._syncDynamicVideos();
- 
-       this._updateDynamicNodes();
- 
-@@ -2700,86 +2706,456 @@ const liquidGL = (() => {
+@@ -2700,8 +2700,190 @@ const liquidGL = (() => {
        gl.uniform1i(this.u.tex, 0);
      }
  
--    /* ----------------------------- */
--    _updateDynamicVideos() {
--      if (this._isScrolling && this._scrollUpdateCounter % 2 !== 0) return;
--      if (
--        !this.texture ||
--        !this.staticSnapshotCanvas ||
--        !this._videoNodes.length
--      )
-+    _clearDynamicVideoState() {
-+      this._videoFrameState = new WeakMap();
-+      this._lastVideoDestinations = new Map();
-+      this._videoDirtyRects = [];
-+    }
 +
-+    destroy() {
-+      if (this._rafId) {
-+        cancelAnimationFrame(this._rafId);
-+        this._rafId = null;
-+      }
-+      this._clearDynamicVideoState();
-+      if (this._dynWorker) {
-+        try {
-+          this._dynWorker.terminate();
-+        } catch (_) {
-+          /* ignore */
-+        }
-+        this._dynWorker = null;
-+      }
-+      this._videoNodes = [];
-+    }
-+
-+    _videoDestinationRectsEqual(a, b) {
-+      return (
-+        !!a &&
-+        !!b &&
-+        a.x === b.x &&
-+        a.y === b.y &&
-+        a.w === b.w &&
-+        a.h === b.h
-+      );
-+    }
-+
-+    _videoDestinationRectsIntersect(a, b) {
-+      return (
-+        a.x < b.x + b.w &&
-+        a.x + a.w > b.x &&
-+        a.y < b.y + b.h &&
-+        a.y + a.h > b.y
-+      );
-+    }
-+
-+    _getEffectiveVideoOpacity(vid) {
-+      let opacity = 1;
-+      let node = vid;
-+      while (node && node.nodeType === 1) {
-+        const style = window.getComputedStyle(node);
-+        const o = parseFloat(style.opacity);
-+        if (!Number.isNaN(o)) opacity *= o;
-+        if (opacity <= 0) return 0;
-+        if (node === this.snapshotTarget) break;
-+        node = node.parentElement;
-+      }
-+      return opacity;
-+    }
-+
-+    /**
-+     * Clipped texture destination for a video, or null when geometry is
-+     * unavailable / entirely outside the shared texture.
-+     */
-+    _getClippedVideoDestination(vid, snapRect) {
-+      const rect = vid.getBoundingClientRect();
-+      const texX = (rect.left - snapRect.left) * this.scaleFactor;
-+      const texY = (rect.top - snapRect.top) * this.scaleFactor;
-+      const texW = rect.width * this.scaleFactor;
-+      const texH = rect.height * this.scaleFactor;
-+      const drawW = Math.round(texW);
-+      const drawH = Math.round(texH);
-+      if (drawW <= 0 || drawH <= 0) return null;
-+
-+      const drawX = Math.round(texX);
-+      const drawY = Math.round(texY);
-+      const maxW = this.textureWidth;
-+      const maxH = this.textureHeight;
-+      let dstX = drawX;
-+      let dstY = drawY;
-+      let srcX = 0;
-+      let srcY = 0;
-+      let updW = drawW;
-+      let updH = drawH;
-+
-+      if (dstX < 0) {
-+        srcX = -dstX;
-+        updW += dstX;
-+        dstX = 0;
-+      }
-+      if (dstY < 0) {
-+        srcY = -dstY;
-+        updH += dstY;
-+        dstY = 0;
-+      }
-+      if (dstX + updW > maxW) {
-+        updW = maxW - dstX;
-+      }
-+      if (dstY + updH > maxH) {
-+        updH = maxH - dstY;
-+      }
-+      if (updW <= 0 || updH <= 0) return null;
-+
-+      return {
-+        x: dstX,
-+        y: dstY,
-+        w: updW,
-+        h: updH,
-+        drawX,
-+        drawY,
-+        drawW,
-+        drawH,
-+        texX,
-+        texY,
-+        texW,
-+        texH,
-+        srcX,
-+        srcY,
-+      };
-+    }
-+
-+    _restoreVideoDestination(dest, dirtyRects) {
-+      if (!dest || dest.w <= 0 || dest.h <= 0) return;
-+      if (!this.gl || !this.texture || !this.staticSnapshotCanvas) return;
-+      if (!this._tmpCanvas || !this._tmpCtx) return;
-+
-+      const { x, y, w, h } = dest;
-+      this._tmpCanvas.width = w;
-+      this._tmpCanvas.height = h;
-+      try {
-+        this._tmpCtx.drawImage(
-+          this.staticSnapshotCanvas,
-+          x,
-+          y,
-+          w,
-+          h,
-+          0,
-+          0,
-+          w,
-+          h,
-+        );
-+      } catch (e) {
-+        console.warn("liquidGL: Error restoring video destination", e);
-         return;
-+      }
-+
-       const gl = this.gl;
-+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
-+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-+      try {
-+        gl.texSubImage2D(
-+          gl.TEXTURE_2D,
-+          0,
-+          x,
-+          y,
-+          gl.RGBA,
-+          gl.UNSIGNED_BYTE,
-+          this._tmpCanvas,
-+        );
-+      } catch (e) {
-+        console.warn("liquidGL: Error uploading restored video region", e);
-+        return;
-+      }
- 
--      const snapRect = this.snapshotTarget.getBoundingClientRect();
-+      dirtyRects.push({ x, y, w, h });
-+    }
- 
--      const maxLensZ = this._getMaxLensZ();
 +    _getVideoSourceCrop(vid) {
 +      const videoWidth = vid.videoWidth || 0;
 +      const videoHeight = vid.videoHeight || 0;
@@ -236,10 +23,7 @@ index e5e90cf..ff958fb 100644
 +          if (parts.length && parts[0] < 0) mirroredX = true;
 +        }
 +      }
- 
--      this._videoNodes.forEach((vid) => {
--        if (effectiveZ(vid) >= maxLensZ) {
--          return;
++
 +      const rect = vid.getBoundingClientRect();
 +      const elW = rect.width;
 +      const elH = rect.height;
@@ -336,10 +120,9 @@ index e5e90cf..ff958fb 100644
 +          sourceHeight = videoHeight;
 +          sourceX = 0;
 +          sourceY = 0;
-         }
++        }
 +      }
- 
--        if (this._isIgnored(vid) || vid.readyState < 2) return;
++
 +      return {
 +        sourceX,
 +        sourceY,
@@ -350,122 +133,70 @@ index e5e90cf..ff958fb 100644
 +        objectPosition,
 +      };
 +    }
- 
--        const rect = vid.getBoundingClientRect();
--        const texX = (rect.left - snapRect.left) * this.scaleFactor;
--        const texY = (rect.top - snapRect.top) * this.scaleFactor;
--        const texW = rect.width * this.scaleFactor;
--        const texH = rect.height * this.scaleFactor;
-+    /* ----------------------------- */
-+    /**
-+     * Owns the complete dynamic-video synchronization: rescan, stale-region
-+     * cleanup, then draw. Renderer (not application code) tracks destinations.
-+     */
-+    _syncDynamicVideos() {
-+      if (this._isScrolling && this._scrollUpdateCounter % 2 !== 0) return;
-+      if (!this.texture || !this.staticSnapshotCanvas) return;
- 
--        const drawW = Math.round(texW);
--        const drawH = Math.round(texH);
-+      // Rescan every video — do not filter ignored / hidden / not-ready.
++
++    _getEffectiveVideoOpacity(video) {
++      let opacity = 1;
++      let node = video;
++
++      while (node && node.nodeType === 1) {
++        const computed = window.getComputedStyle(node);
++        const value = Number.parseFloat(computed.opacity);
++
++        if (!Number.isNaN(value)) {
++          opacity *= value;
++        }
++
++        if (opacity <= 0 || node === this.snapshotTarget) {
++          break;
++        }
++
++        node = node.parentElement;
++      }
++
++      return Math.max(0, Math.min(1, opacity));
++    }
++
++    _rebuildDynamicVideoTexture() {
++      if (!this.gl || !this.texture || !this.staticSnapshotCanvas) return;
++
 +      this._videoNodes = Array.from(
 +        this.snapshotTarget.querySelectorAll("video"),
-+      );
- 
--        if (drawW <= 0 || drawH <= 0) return;
-+      const dirtyRects = [];
-+      this._videoDirtyRects = dirtyRects;
-+
-+      this._cleanupDynamicVideoDestinations(dirtyRects);
-+      this._drawDynamicVideos(dirtyRects);
-+    }
-+
-+    /** @deprecated Use _syncDynamicVideos — kept as an alias for callers. */
-+    _updateDynamicVideos() {
-+      this._syncDynamicVideos();
-+    }
-+
-+    _cleanupDynamicVideoDestinations(dirtyRects) {
-+      if (!this._lastVideoDestinations) {
-+        this._lastVideoDestinations = new Map();
-+      }
-+
-+      const snapRect = this.snapshotTarget.getBoundingClientRect();
-+      const maxLensZ = this._getMaxLensZ();
-+      const present = new Set(this._videoNodes);
-+
-+      for (const [vid, prevDest] of [
-+        ...this._lastVideoDestinations.entries(),
-+      ]) {
-+        if (present.has(vid)) continue;
-+        this._restoreVideoDestination(prevDest, dirtyRects);
-+        this._lastVideoDestinations.delete(vid);
-+        this._videoFrameState.delete(vid);
-+      }
-+
-+      for (const vid of this._videoNodes) {
-+        const prevDest = this._lastVideoDestinations.get(vid);
-+        if (!prevDest) continue;
-+
-+        const current = this._getClippedVideoDestination(vid, snapRect);
-+        const ignored = this._isIgnored(vid);
-+        const notReady = vid.readyState < 2;
-+        const aboveLenses = effectiveZ(vid) >= maxLensZ;
-+        const destinationChanged =
-+          !!current &&
-+          !this._videoDestinationRectsEqual(prevDest, {
-+            x: current.x,
-+            y: current.y,
-+            w: current.w,
-+            h: current.h,
-+          });
-+
-+        const shouldRestore =
-+          !current ||
-+          destinationChanged ||
-+          ignored ||
-+          notReady ||
-+          aboveLenses;
-+
-+        if (!shouldRestore) continue;
-+
-+        this._restoreVideoDestination(prevDest, dirtyRects);
-+        this._lastVideoDestinations.delete(vid);
-+        this._videoFrameState.delete(vid);
-+      }
-+    }
-+
-+    _drawDynamicVideos(dirtyRects) {
-+      if (!this._videoNodes.length) return;
++      ).filter((video) => !this._isIgnored(video));
 +
 +      const gl = this.gl;
-+      const snapRect = this.snapshotTarget.getBoundingClientRect();
-+      const maxLensZ = this._getMaxLensZ();
 +
-+      for (const vid of this._videoNodes) {
-+        if (effectiveZ(vid) >= maxLensZ) continue;
-+        if (this._isIgnored(vid) || vid.readyState < 2) continue;
++      gl.bindTexture(gl.TEXTURE_2D, this.texture);
++      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 +
-+        const clipped = this._getClippedVideoDestination(vid, snapRect);
-+        if (!clipped) continue;
++      try {
++        gl.texSubImage2D(
++          gl.TEXTURE_2D,
++          0,
++          0,
++          0,
++          gl.RGBA,
++          gl.UNSIGNED_BYTE,
++          this.staticSnapshotCanvas,
++        );
++      } catch (error) {
++        console.warn("liquidGL: Unable to rebuild video texture", error);
++        return;
++      }
 +
-+        const {
-+          x: dstX,
-+          y: dstY,
-+          w: updW,
-+          h: updH,
-+          drawW,
-+          drawH,
-+          texX,
-+          texY,
-+          texW,
-+          texH,
-+          srcX,
-+          srcY,
-+        } = clipped;
++      this._videoFrameState = new WeakMap();
++      this._updateDynamicVideos();
++    }
 +
-+        const currentDestination = { x: dstX, y: dstY, w: updW, h: updH };
+     /* ----------------------------- */
+     _updateDynamicVideos() {
 +
+       if (this._isScrolling && this._scrollUpdateCounter % 2 !== 0) return;
+       if (
+         !this.texture ||
+@@ -2733,8 +2915,44 @@ const liquidGL = (() => {
+ 
+         if (drawW <= 0 || drawH <= 0) return;
+ 
 +        const crop = this._getVideoSourceCrop(vid);
 +        const {
 +          sourceX,
@@ -479,7 +210,7 @@ index e5e90cf..ff958fb 100644
 +
 +        const opacity = this._getEffectiveVideoOpacity(vid);
 +        const opacityKey = Math.round(opacity * 1000);
- 
++
          const geomKey =
 -          Math.round(texX) + "," + Math.round(texY) + "," + drawW + "," + drawH;
 +          Math.round(texX) +
@@ -505,62 +236,10 @@ index e5e90cf..ff958fb 100644
 +          objectPosition +
 +          "," +
 +          opacityKey;
-+
          const prevState = this._videoFrameState.get(vid);
-+        const invalidatedByCleanup = dirtyRects.some((dirty) =>
-+          this._videoDestinationRectsIntersect(dirty, currentDestination),
-+        );
          if (
            prevState &&
-           prevState.time === vid.currentTime &&
--          prevState.geom === geomKey
-+          prevState.geom === geomKey &&
-+          !invalidatedByCleanup
-         ) {
--          return;
--        }
--        this._videoFrameState.set(vid, {
--          time: vid.currentTime,
--          geom: geomKey,
--        });
--
--        const drawX = Math.round(texX);
--        const drawY = Math.round(texY);
--
--        const maxW = this.textureWidth;
--        const maxH = this.textureHeight;
--        let dstX = drawX;
--        let dstY = drawY;
--        let srcX = 0,
--          srcY = 0,
--          updW = drawW,
--          updH = drawH;
--
--        if (dstX < 0) {
--          srcX = -dstX;
--          updW += dstX;
--          dstX = 0;
--        }
--        if (dstY < 0) {
--          srcY = -dstY;
--          updH += dstY;
--          dstY = 0;
--        }
--
--        if (dstX + updW > maxW) {
--          updW = maxW - dstX;
--        }
--        if (dstY + updH > maxH) {
--          updH = maxH - dstY;
-+          continue;
-         }
- 
--        if (updW <= 0 || updH <= 0) return;
--
-         const style = window.getComputedStyle(vid);
-         const scaledRadii = {
-           tl: parseFloat(style.borderTopLeftRadius) * this.scaleFactor,
-@@ -2789,73 +3165,131 @@ const liquidGL = (() => {
+@@ -2789,15 +3007,42 @@ const liquidGL = (() => {
          };
          const isRounded = Object.values(scaledRadii).some((r) => r > 0);
  
@@ -590,10 +269,6 @@ index e5e90cf..ff958fb 100644
 +        v = v + vh * fy0;
 +        vh = vh * fzh;
 +
-+        let uploaded = false;
-+
-+        // CSS opacity < 1 must use the compositing path so glass follows the
-+        // visible DOM fade (opaque WebGL blit would reveal the video early).
          if (
            !isRounded &&
 +          opacity >= 1 &&
@@ -610,136 +285,31 @@ index e5e90cf..ff958fb 100644
 +            vh,
            })
          ) {
--          return;
--        }
-+          uploaded = true;
-+        } else {
-+          if (
-+            this._tmpCanvas.width !== drawW ||
-+            this._tmpCanvas.height !== drawH
-+          ) {
-+            this._tmpCanvas.width = drawW;
-+            this._tmpCanvas.height = drawH;
-+          }
+           return;
+@@ -2837,7 +3082,25 @@ const liquidGL = (() => {
+             drawH,
+           );
  
--        if (
--          this._tmpCanvas.width !== drawW ||
--          this._tmpCanvas.height !== drawH
--        ) {
--          this._tmpCanvas.width = drawW;
--          this._tmpCanvas.height = drawH;
--        }
-+          try {
-+            this._tmpCtx.save();
-+            this._tmpCtx.clearRect(0, 0, drawW, drawH);
-+
-+            if (isRounded) {
-+              this._createRoundedRectPath(
-+                this._tmpCtx,
-+                drawW,
-+                drawH,
-+                scaledRadii,
-+              );
-+              this._tmpCtx.clip();
-+            }
- 
--        try {
--          this._tmpCtx.save();
--          this._tmpCtx.clearRect(0, 0, drawW, drawH);
-+            this._tmpCtx.drawImage(
-+              this.staticSnapshotCanvas,
-+              texX,
-+              texY,
-+              texW,
-+              texH,
-+              0,
-+              0,
-+              drawW,
-+              drawH,
-+            );
- 
--          if (isRounded) {
--            this._createRoundedRectPath(
--              this._tmpCtx,
-+            this._tmpCtx.save();
-+            this._tmpCtx.globalAlpha = opacity;
-+            if (mirroredX) {
-+              this._tmpCtx.translate(drawW, 0);
-+              this._tmpCtx.scale(-1, 1);
-+            }
-+            this._tmpCtx.drawImage(
-+              vid,
-+              sourceX,
-+              sourceY,
-+              sourceWidth,
-+              sourceHeight,
-+              0,
-+              0,
-               drawW,
-               drawH,
--              scaledRadii,
-             );
--            this._tmpCtx.clip();
-+            this._tmpCtx.restore();
-+            this._tmpCtx.restore();
-+
-+            gl.bindTexture(gl.TEXTURE_2D, this.texture);
-+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-+            gl.texSubImage2D(
-+              gl.TEXTURE_2D,
-+              0,
-+              dstX,
-+              dstY,
-+              gl.RGBA,
-+              gl.UNSIGNED_BYTE,
-+              this._tmpCanvas,
-+            );
-+            uploaded = true;
-+          } catch (e) {
-+            console.warn("liquidGL: Error drawing video frame", e);
-+            uploaded = false;
-           }
--
--          this._tmpCtx.drawImage(
--            this.staticSnapshotCanvas,
--            texX,
--            texY,
--            texW,
--            texH,
--            0,
--            0,
--            drawW,
--            drawH,
--          );
--
 -          this._tmpCtx.drawImage(vid, 0, 0, drawW, drawH);
--          this._tmpCtx.restore();
--        } catch (e) {
--          console.warn("liquidGL: Error drawing video frame", e);
--          return;
-         }
- 
--        gl.bindTexture(gl.TEXTURE_2D, this.texture);
--        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
--        gl.texSubImage2D(
--          gl.TEXTURE_2D,
--          0,
--          dstX,
--          dstY,
--          gl.RGBA,
--          gl.UNSIGNED_BYTE,
--          this._tmpCanvas,
--        );
--      });
-+        // Record success only after a confirmed upload so failed frames retry.
-+        if (uploaded) {
-+          this._videoFrameState.set(vid, {
-+            time: vid.currentTime,
-+            geom: geomKey,
-+          });
-+          this._lastVideoDestinations.set(vid, currentDestination);
-+        }
-+      }
-     }
- 
-     /* ----------------------------- */
++          this._tmpCtx.save();
++          this._tmpCtx.globalAlpha = opacity;
++          if (mirroredX) {
++            this._tmpCtx.translate(drawW, 0);
++            this._tmpCtx.scale(-1, 1);
++          }
++          this._tmpCtx.drawImage(
++            vid,
++            sourceX,
++            sourceY,
++            sourceWidth,
++            sourceHeight,
++            0,
++            0,
++            drawW,
++            drawH,
++          );
++          this._tmpCtx.globalAlpha = 1;
++          this._tmpCtx.restore();
+           this._tmpCtx.restore();
+         } catch (e) {
+           console.warn("liquidGL: Error drawing video frame", e);

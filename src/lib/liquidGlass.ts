@@ -17,10 +17,11 @@ export interface LiquidGlassController {
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
   /**
-   * Immediate video + lens sync after a committed layout change.
-   * Calls `_syncDynamicVideos()` and one lens-metric pass — no snapshot.
+   * Immediate video-texture rebuild + one lens-metric pass after a committed
+   * layout change. Calls `_rebuildDynamicVideoTexture()` — no snapshot.
+   * Callers must not immediately follow with `refreshImmediate()`.
    */
-  syncVideoLayout(): void;
+  rebuildVideoTexture(): void;
   /** Fade the shared glass canvas with the call chrome. */
   setChromeVisible(visible: boolean): void;
   destroy(): void;
@@ -50,8 +51,7 @@ interface RendererLike {
   canvas?: HTMLCanvasElement | null;
   lenses?: LiquidLensLike[];
   captureSnapshot?: () => Promise<void> | void;
-  _syncDynamicVideos?: () => void;
-  _clearDynamicVideoState?: () => void;
+  _rebuildDynamicVideoTexture?: () => void;
   destroy?: () => void;
 }
 
@@ -181,7 +181,6 @@ function clearRenderer(): void {
   }
 
   renderer.destroy?.();
-  renderer._clearDynamicVideoState?.();
 
   renderer.lenses = [];
   renderer.canvas?.remove();
@@ -395,41 +394,43 @@ export function createLiquidGlassController(): LiquidGlassController {
       if (recaptureTimer != null) {
         window.clearTimeout(recaptureTimer);
       }
-      recaptureTimer = window.setTimeout(() => {
+      recaptureTimer = window.setTimeout(async () => {
         recaptureTimer = null;
-        if (destroyed) return;
-        if (!initialized) return;
+
+        if (destroyed || !initialized) return;
+
         const renderer = window.__liquidGLRenderer__;
+
         try {
-          void renderer?.captureSnapshot?.();
+          await Promise.resolve(renderer?.captureSnapshot?.());
+          renderer?._rebuildDynamicVideoTexture?.();
         } catch (error) {
           lastError =
             error instanceof Error
               ? error.message.slice(0, 160)
               : "Recapture failed";
         }
+
         for (const instance of instances) {
           instance.updateMetrics?.();
         }
+
+        adoptRendererCanvas();
         publishDebug();
+        assertSingleCanvasDev();
       }, RECAPTURE_DEBOUNCE_MS);
     },
-    syncVideoLayout() {
+    rebuildVideoTexture() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
       if (!initialized) return;
-      // Renderer owns video rescan + stale-destination cleanup
-      // (patches/liquid-gl+2.0.1.patch). Do not assign _videoNodes here.
-      window.__liquidGLRenderer__?._syncDynamicVideos?.();
-      // Exactly one immediate lens-metric pass — callers must not follow with
-      // refreshImmediate(). No snapshot; retain the current renderer/canvas.
-      if (refreshTimer != null) {
-        window.clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
+
+      window.__liquidGLRenderer__?._rebuildDynamicVideoTexture?.();
+
       for (const instance of instances) {
         instance.updateMetrics?.();
       }
+
       adoptRendererCanvas();
       publishDebug();
       assertSingleCanvasDev();

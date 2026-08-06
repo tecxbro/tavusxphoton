@@ -21,8 +21,10 @@ export interface UseLiquidGlassResult {
   error: string | null;
   refresh: () => void;
   refreshImmediate: () => void;
-  /** Immediate video + lens sync after a committed layout change. */
-  syncVideoLayout: () => void;
+  /** Immediate video-texture rebuild after a committed layout change. */
+  rebuildVideoTexture: () => void;
+  /** Debounced background recapture for settled static DOM changes. */
+  recapture: () => void;
 }
 
 export function useLiquidGlass({
@@ -100,23 +102,26 @@ export function useLiquidGlass({
     };
   }, [enabled, backgroundReady]);
 
-  // After committed phase / layout / camera DOM changes: immediate video sync
-  // + one lens-metric pass. Do not follow with refreshImmediate().
+  // After committed phase / layout / camera DOM changes: rebuild video texture
+  // from the current static base + one lens-metric pass. Not a snapshot.
+  // Do not follow with refreshImmediate().
   useLayoutEffect(() => {
-    controllerRef.current?.syncVideoLayout();
+    controllerRef.current?.rebuildVideoTexture();
   }, [phase, layoutMode, videoEnabled]);
 
-  // Lens metric updates for chrome fade (syncVideoLayout already covers
+  // Lens metric updates for chrome fade (rebuildVideoTexture already covers
   // phase / layoutMode / videoEnabled).
   useEffect(() => {
     controllerRef.current?.refresh();
   }, [controlsVisible]);
 
-  // Debounced recapture for settled static DOM changes (phase + camera off
-  // placeholder). syncVideoLayout does not wait for this timer.
+  // Recapture only the camera-off static state. Phase changes must not start
+  // an asynchronous snapshot while the pickup morph is active.
   useEffect(() => {
-    controllerRef.current?.recapture();
-  }, [phase, videoEnabled]);
+    if (!videoEnabled) {
+      controllerRef.current?.recapture();
+    }
+  }, [videoEnabled]);
 
   // Keep the glass canvas visibility in sync with the chrome fade.
   useEffect(() => {
@@ -131,8 +136,12 @@ export function useLiquidGlass({
     controllerRef.current?.refreshImmediate();
   }, []);
 
-  const syncVideoLayout = useCallback(() => {
-    controllerRef.current?.syncVideoLayout();
+  const rebuildVideoTexture = useCallback(() => {
+    controllerRef.current?.rebuildVideoTexture();
+  }, []);
+
+  const recapture = useCallback(() => {
+    controllerRef.current?.recapture();
   }, []);
 
   return {
@@ -140,6 +149,7 @@ export function useLiquidGlass({
     error,
     refresh,
     refreshImmediate,
-    syncVideoLayout,
+    rebuildVideoTexture,
+    recapture,
   };
 }

@@ -232,8 +232,9 @@
   display: none;
 }
 
-.self-flip-capsule[data-visible="true"] {
-  animation: chrome-in var(--motion-chrome) var(--ease-out-expo);
+.self-flip-capsule[data-visible="true"]
+  .self-flip-capsule__content {
+  animation: flip-content-in var(--motion-chrome) var(--ease-out-expo);
 }
 
 .self-flip-capsule__content {
@@ -634,6 +635,18 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
     opacity: 0;
     transform: scale(0.92);
   }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes flip-content-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
   to {
     opacity: 1;
     transform: scale(1);

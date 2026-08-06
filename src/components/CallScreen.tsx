@@ -410,7 +410,8 @@ export function CallScreen({ config }: CallScreenProps) {
   const {
     mode: liquidMode,
     refreshImmediate,
-    syncVideoLayout,
+    rebuildVideoTexture,
+    recapture,
   } = useLiquidGlass({
     enabled: showLocal,
     backgroundReady: backgroundReady && showLocal,
@@ -420,16 +421,22 @@ export function CallScreen({ config }: CallScreenProps) {
     videoEnabled,
   });
 
+  const finishSelfViewMorph = useCallback(() => {
+    rebuildVideoTexture();
+    recapture();
+  }, [rebuildVideoTexture, recapture]);
+
   // CallScreen owns the only self-view morph: local camera primary, Flip
-  // overlay follower (outside #liquid-gl-snapshot). syncVideoLayout already
-  // includes one metric pass — do not add refreshImmediate beside start/finish.
+  // overlay follower (outside #liquid-gl-snapshot). rebuildVideoTexture already
+  // includes one metric pass — do not add refreshImmediate beside start/frame.
+  // Do not call captureSnapshot()/recapture() during onStart or onFrame.
   useLayoutMorph(dragNodeRef, {
     activeKey: mode,
     durationMs: morphDurationMs,
     followers: [flipOverlayRef],
-    onStart: syncVideoLayout,
-    onFrame: refreshImmediate,
-    onFinish: syncVideoLayout,
+    onStart: rebuildVideoTexture,
+    onFrame: rebuildVideoTexture,
+    onFinish: finishSelfViewMorph,
   });
 
   // Flip visibility changes (drag, camera switch, phase, chrome) need one
