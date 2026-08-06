@@ -402,7 +402,7 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
     expect(updateSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("routes marked canvas-upload videos through Canvas2D, not direct WebGL", () => {
+  it("routes marked canvas-upload videos through Canvas2D staging then blit", () => {
     const remote = document.createElement("video");
     remote.dataset.liquidVideoUpload = "canvas";
     stage.append(remote);
@@ -412,6 +412,9 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
 
     texSubImage2D.mockClear();
     (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
     (renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>).mockClear();
 
     renderer._rebuildDynamicVideoTexture();
@@ -425,8 +428,25 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
       renderer.gl.UNSIGNED_BYTE,
       renderer.staticSnapshotCanvas,
     );
-    expect(renderer._blitVideoToTexture).not.toHaveBeenCalled();
-    expect(renderer._tmpCtx.drawImage).toHaveBeenCalled();
+
+    const drawImage = renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>;
+    expect(drawImage).toHaveBeenCalled();
+    expect(
+      drawImage.mock.calls.some((args) => args[0] === remote),
+    ).toBe(true);
+    expect(
+      drawImage.mock.calls.some(
+        (args) => args[0] === renderer.staticSnapshotCanvas,
+      ),
+    ).toBe(false);
+
+    expect(renderer._blitVideoToTexture).toHaveBeenCalled();
+    const blitSource = (
+      renderer._blitVideoToTexture as ReturnType<typeof vi.fn>
+    ).mock.calls[0][0];
+    expect(blitSource).toBe(renderer._tmpCanvas);
+    expect(blitSource).not.toBe(remote);
+
     expect(renderer._videoNodes).toEqual([remote]);
     expect(renderer._videoFrameState.get(remote)).toEqual(
       expect.objectContaining({
@@ -451,6 +471,10 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
     renderer._rebuildDynamicVideoTexture();
 
     expect(renderer._blitVideoToTexture).toHaveBeenCalled();
+    expect(
+      (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mock
+        .calls[0][0],
+    ).toBe(local);
   });
 
   it("passes cover crop parameters into Canvas2D drawImage for marked videos", () => {
@@ -474,7 +498,11 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
 
     renderer._rebuildDynamicVideoTexture();
 
-    expect(renderer._blitVideoToTexture).not.toHaveBeenCalled();
+    expect(renderer._blitVideoToTexture).toHaveBeenCalled();
+    expect(
+      (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mock
+        .calls[0][0],
+    ).toBe(renderer._tmpCanvas);
     expect(drawImage).toHaveBeenCalledWith(
       remote,
       80,
@@ -486,5 +514,179 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
       200,
       200,
     );
+  });
+
+  it("sorts videos by visual z-index and redraws overlapped PiP after lower remote", () => {
+    const localWrap = document.createElement("div");
+    localWrap.style.position = "absolute";
+    localWrap.style.zIndex = "5";
+    const local = document.createElement("video");
+    local.style.borderRadius = "16px";
+    localWrap.append(local);
+
+    const remoteWrap = document.createElement("div");
+    remoteWrap.style.position = "absolute";
+    remoteWrap.style.zIndex = "1";
+    const remote = document.createElement("video");
+    remote.dataset.liquidVideoUpload = "canvas";
+    remoteWrap.append(remote);
+
+    // Local first in DOM, remote second — z-index must still put remote first.
+    stage.append(localWrap, remoteWrap);
+
+    prepareVideo(local, {
+      currentTime: 1,
+      rect: { left: 40, top: 40, width: 80, height: 120 },
+    });
+    prepareVideo(remote, {
+      currentTime: 1,
+      rect: { left: 0, top: 0, width: 400, height: 800 },
+    });
+
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el) => {
+      if (el === local) {
+        return {
+          borderTopLeftRadius: "16px",
+          borderTopRightRadius: "16px",
+          borderBottomRightRadius: "16px",
+          borderBottomLeftRadius: "16px",
+          opacity: "1",
+          objectFit: "cover",
+          objectPosition: "50% 50%",
+          transform: "none",
+        } as CSSStyleDeclaration;
+      }
+      if (el === remote) {
+        return {
+          borderTopLeftRadius: "0px",
+          borderTopRightRadius: "0px",
+          borderBottomRightRadius: "0px",
+          borderBottomLeftRadius: "0px",
+          opacity: "1",
+          objectFit: "cover",
+          objectPosition: "50% 50%",
+          transform: "none",
+        } as CSSStyleDeclaration;
+      }
+      if (el === localWrap) {
+        return {
+          position: "absolute",
+          zIndex: "5",
+          opacity: "1",
+          transform: "none",
+        } as CSSStyleDeclaration;
+      }
+      if (el === remoteWrap) {
+        return {
+          position: "absolute",
+          zIndex: "1",
+          opacity: "1",
+          transform: "none",
+        } as CSSStyleDeclaration;
+      }
+      return {
+        borderTopLeftRadius: "0px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+        opacity: "1",
+        zIndex: "auto",
+        transform: "none",
+      } as CSSStyleDeclaration;
+    });
+
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
+
+    renderer._updateDynamicVideos();
+    expect(renderer._videoNodes).toEqual([remote, local]);
+
+    const drawImage = renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>;
+    drawImage.mockClear();
+    texSubImage2D.mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
+
+    Object.defineProperty(remote, "currentTime", {
+      configurable: true,
+      value: 2,
+    });
+
+    renderer._updateDynamicVideos();
+
+    const blitCalls = (
+      renderer._blitVideoToTexture as ReturnType<typeof vi.fn>
+    ).mock.calls;
+    expect(blitCalls.length).toBeGreaterThanOrEqual(1);
+    expect(blitCalls[0][0]).toBe(renderer._tmpCanvas);
+
+    const remoteDrawOrder = drawImage.mock.invocationCallOrder.find(
+      (_, i) => drawImage.mock.calls[i][0] === remote,
+    );
+    const localUploadOrder = texSubImage2D.mock.invocationCallOrder[0];
+    expect(remoteDrawOrder).toBeDefined();
+    expect(localUploadOrder).toBeDefined();
+    expect(remoteDrawOrder!).toBeLessThan(localUploadOrder!);
+    expect(texSubImage2D).toHaveBeenCalled();
+  });
+
+  it("does not cache frame state when staged blit fails", () => {
+    const remote = document.createElement("video");
+    remote.dataset.liquidVideoUpload = "canvas";
+    stage.append(remote);
+    prepareVideo(remote, {
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      false,
+    );
+
+    renderer._updateDynamicVideos();
+
+    expect(renderer._videoFrameState.get(remote)).toBeUndefined();
+  });
+
+  it("does not cache frame state when generic Canvas2D upload fails", () => {
+    const local = document.createElement("video");
+    local.style.borderRadius = "12px";
+    stage.append(local);
+    prepareVideo(local, {
+      rect: { left: 0, top: 0, width: 100, height: 100 },
+    });
+
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el) => {
+      if (el === local) {
+        return {
+          borderTopLeftRadius: "12px",
+          borderTopRightRadius: "12px",
+          borderBottomRightRadius: "12px",
+          borderBottomLeftRadius: "12px",
+          opacity: "1",
+          objectFit: "cover",
+          objectPosition: "50% 50%",
+          transform: "none",
+        } as CSSStyleDeclaration;
+      }
+      return {
+        borderTopLeftRadius: "0px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+        opacity: "1",
+        zIndex: "auto",
+        transform: "none",
+      } as CSSStyleDeclaration;
+    });
+
+    texSubImage2D.mockImplementation(() => {
+      throw new Error("upload failed");
+    });
+
+    expect(() => renderer._updateDynamicVideos()).not.toThrow();
+    expect(renderer._videoFrameState.get(local)).toBeUndefined();
   });
 });

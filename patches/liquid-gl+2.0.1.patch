@@ -1,8 +1,26 @@
 diff --git a/node_modules/liquid-gl/liquidGL.js b/node_modules/liquid-gl/liquidGL.js
-index e5e90cf..321f909 100644
+index e5e90cf..dc2b25e 100644
 --- a/node_modules/liquid-gl/liquidGL.js
 +++ b/node_modules/liquid-gl/liquidGL.js
-@@ -2700,8 +2700,193 @@ const liquidGL = (() => {
+@@ -2624,7 +2624,7 @@ const liquidGL = (() => {
+       return opaque;
+     }
+ 
+-    _blitVideoToTexture(vid, dstX, dstY, dstW, dstH, srcRect) {
++    _blitVideoToTexture(source, dstX, dstY, dstW, dstH, srcRect) {
+       const gl = this.gl;
+ 
+       gl.bindFramebuffer(gl.FRAMEBUFFER, this._vFbo);
+@@ -2658,7 +2658,7 @@ const liquidGL = (() => {
+           gl.RGBA,
+           gl.RGBA,
+           gl.UNSIGNED_BYTE,
+-          vid,
++          source,
+         );
+       } catch (e) {
+         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+@@ -2700,8 +2700,195 @@ const liquidGL = (() => {
        gl.uniform1i(this.u.tex, 0);
      }
  
@@ -191,12 +209,23 @@ index e5e90cf..321f909 100644
      _updateDynamicVideos() {
 +      this._videoNodes = Array.from(
 +        this.snapshotTarget.querySelectorAll("video"),
-+      ).filter((video) => !this._isIgnored(video));
++      )
++        .filter((video) => !this._isIgnored(video))
++        .sort((a, b) => effectiveZ(a) - effectiveZ(b));
 +
        if (this._isScrolling && this._scrollUpdateCounter % 2 !== 0) return;
        if (
          !this.texture ||
-@@ -2733,8 +2918,44 @@ const liquidGL = (() => {
+@@ -2715,6 +2902,8 @@ const liquidGL = (() => {
+ 
+       const maxLensZ = this._getMaxLensZ();
+ 
++      let lowerVideoRedrew = false;
++
+       this._videoNodes.forEach((vid) => {
+         if (effectiveZ(vid) >= maxLensZ) {
+           return;
+@@ -2733,20 +2922,60 @@ const liquidGL = (() => {
  
          if (drawW <= 0 || drawH <= 0) return;
  
@@ -239,10 +268,30 @@ index e5e90cf..321f909 100644
 +          objectPosition +
 +          "," +
 +          opacityKey;
++        const commitSuccessfulDraw = () => {
++          this._videoFrameState.set(vid, {
++            time: vid.currentTime,
++            geom: geomKey,
++          });
++          lowerVideoRedrew = true;
++        };
          const prevState = this._videoFrameState.get(vid);
          if (
++          !lowerVideoRedrew &&
            prevState &&
-@@ -2789,15 +3010,46 @@ const liquidGL = (() => {
+           prevState.time === vid.currentTime &&
+           prevState.geom === geomKey
+         ) {
+           return;
+         }
+-        this._videoFrameState.set(vid, {
+-          time: vid.currentTime,
+-          geom: geomKey,
+-        });
+ 
+         const drawX = Math.round(texX);
+         const drawY = Math.round(texY);
+@@ -2789,17 +3018,116 @@ const liquidGL = (() => {
          };
          const isRounded = Object.values(scaledRadii).some((r) => r > 0);
  
@@ -275,25 +324,97 @@ index e5e90cf..321f909 100644
 +        const forceCanvasUpload =
 +          vid.dataset.liquidVideoUpload === "canvas";
 +
++        if (forceCanvasUpload && !isRounded) {
++          if (
++            this._tmpCanvas.width !== drawW ||
++            this._tmpCanvas.height !== drawH
++          ) {
++            this._tmpCanvas.width = drawW;
++            this._tmpCanvas.height = drawH;
++          }
++
++          this._tmpCtx.save();
++
++          try {
++            this._tmpCtx.clearRect(0, 0, drawW, drawH);
++
++            if (mirroredX) {
++              this._tmpCtx.translate(drawW, 0);
++              this._tmpCtx.scale(-1, 1);
++            }
++
++            this._tmpCtx.drawImage(
++              vid,
++              sourceX,
++              sourceY,
++              sourceWidth,
++              sourceHeight,
++              0,
++              0,
++              drawW,
++              drawH,
++            );
++          } catch (error) {
++            console.warn("liquidGL: Error staging video frame", error);
++            return;
++          } finally {
++            this._tmpCtx.restore();
++          }
++
++          if (
++            this._initVideoBlit() &&
++            this._blitVideoToTexture(
++              this._tmpCanvas,
++              dstX,
++              dstY,
++              updW,
++              updH,
++              {
++                u: srcX / drawW,
++                v: srcY / drawH,
++                uw: updW / drawW,
++                vh: updH / drawH,
++              },
++            )
++          ) {
++            commitSuccessfulDraw();
++            return;
++          }
++
++          return;
++        }
++
          if (
 +          !forceCanvasUpload &&
            !isRounded &&
 +          opacity >= 1 &&
            this._initVideoBlit() &&
            this._videoIsOpaque(vid) &&
-           this._blitVideoToTexture(vid, dstX, dstY, updW, updH, {
+-          this._blitVideoToTexture(vid, dstX, dstY, updW, updH, {
 -            u: srcX / drawW,
 -            v: srcY / drawH,
 -            uw: updW / drawW,
 -            vh: updH / drawH,
-+            u,
-+            v,
-+            uw,
-+            vh,
-           })
+-          })
++          this._blitVideoToTexture(
++            vid,
++            dstX,
++            dstY,
++            updW,
++            updH,
++            {
++              u,
++              v,
++              uw,
++              vh,
++            },
++          )
          ) {
++          commitSuccessfulDraw();
            return;
-@@ -2837,7 +3089,25 @@ const liquidGL = (() => {
+         }
+ 
+@@ -2837,7 +3165,25 @@ const liquidGL = (() => {
              drawH,
            );
  
@@ -320,3 +441,35 @@ index e5e90cf..321f909 100644
            this._tmpCtx.restore();
          } catch (e) {
            console.warn("liquidGL: Error drawing video frame", e);
+@@ -2846,15 +3192,22 @@ const liquidGL = (() => {
+ 
+         gl.bindTexture(gl.TEXTURE_2D, this.texture);
+         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+-        gl.texSubImage2D(
+-          gl.TEXTURE_2D,
+-          0,
+-          dstX,
+-          dstY,
+-          gl.RGBA,
+-          gl.UNSIGNED_BYTE,
+-          this._tmpCanvas,
+-        );
++        try {
++          gl.texSubImage2D(
++            gl.TEXTURE_2D,
++            0,
++            dstX,
++            dstY,
++            gl.RGBA,
++            gl.UNSIGNED_BYTE,
++            this._tmpCanvas,
++          );
++        } catch (error) {
++          console.warn("liquidGL: Error uploading video frame", error);
++          return;
++        }
++
++        commitSuccessfulDraw();
+       });
+     }
+ 
