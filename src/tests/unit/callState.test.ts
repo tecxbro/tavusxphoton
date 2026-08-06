@@ -83,7 +83,7 @@ describe("query parameter parsing", () => {
   it("applies defaults and overrides without remoteVideo", () => {
     expect(parseCallSearchParams("demo", "")).toMatchObject({
       sessionId: "demo",
-      participantName: "Gary",
+      participantName: "Garry Tan",
     });
     expect(
       parseCallSearchParams(
@@ -116,7 +116,7 @@ describe("query parameter parsing", () => {
       "demo",
       "avatar=https://evil.example/a.jpg",
     );
-    expect(config.participantAvatar).toBe("/avatars/pho.jpg");
+    expect(config.participantAvatar).toBe("/avatars/agents/garry-tan.webp");
   });
 
   it("builds initials", () => {

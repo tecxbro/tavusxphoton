@@ -20,7 +20,7 @@ One Vite instance on port `5173`. Do not start a second copy.
 
 ### Local routes
 
-- Call UI: [http://localhost:5173/call/demo](http://localhost:5173/call/demo)
+- Call UI: [http://localhost:5173/](http://localhost:5173/) (home) or [http://localhost:5173/call/garry-tan](http://localhost:5173/call/garry-tan)
 
 Architecture and ownership: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -39,7 +39,7 @@ Runs lint, unit tests, and production build.
 Required when changing:
 
 - LiquidGL init, fallback, or stacking → follow [`docs/liquid-gl-verification.md`](docs/liquid-gl-verification.md)
-- Call chrome, self-view drag, camera flip, or phase transitions → exercise `/call/demo` in the target browser / Photon webview
+- Call chrome, self-view drag, camera flip, or phase transitions → exercise `/call/garry-tan` in the target browser / Photon webview
 - Tavus create / join / end → follow [`docs/tavus-cvi.md`](docs/tavus-cvi.md) with `TAVUS_TEST_MODE=false` for a live PAL
 
 ## Pull request checklist

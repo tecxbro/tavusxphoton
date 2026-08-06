@@ -17,6 +17,12 @@ export interface LiquidGlassController {
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
   /**
+   * Immediate background recapture — cancels pending debounced work, coalesces
+   * overlapping requests, captures + rebuilds video texture, updates metrics.
+   * Never calls `liquidGL()` or recreates the renderer.
+   */
+  recaptureImmediate(): void;
+  /**
    * Rebuild videos from the current static base + one lens-metric pass.
    * Used after a completed snapshot — not during FLIP morph frames.
    * Callers must not immediately follow with `refreshImmediate()`.
@@ -239,6 +245,8 @@ export function createLiquidGlassController(): LiquidGlassController {
   let recaptureTimer: number | null = null;
   let watchdogTimer: number | null = null;
   let initGeneration = 0;
+  let immediateRecaptureInFlight = false;
+  let immediateRecaptureQueued = false;
 
   const publishDebug = () => {
     if (typeof window === "undefined") return;
@@ -337,6 +345,39 @@ export function createLiquidGlassController(): LiquidGlassController {
     return false;
   };
 
+  const clearRecaptureTimer = () => {
+    if (recaptureTimer != null) {
+      window.clearTimeout(recaptureTimer);
+      recaptureTimer = null;
+    }
+  };
+
+  const runRecapturePass = async (): Promise<void> => {
+    if (destroyed || !initialized) return;
+    if (mode === "fallback" || mode === "error") return;
+
+    const renderer = window.__liquidGLRenderer__;
+
+    try {
+      await Promise.resolve(renderer?.captureSnapshot?.());
+      // Reuse the existing canvas — rebuild textures, never remount liquidGL.
+      renderer?._rebuildDynamicVideoTexture?.();
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error.message.slice(0, 160)
+          : "Recapture failed";
+    }
+
+    for (const instance of instances) {
+      instance.updateMetrics?.();
+    }
+
+    adoptRendererCanvas();
+    publishDebug();
+    assertSingleCanvasDev();
+  };
+
   if (shouldFallback()) {
     lastError = prefersReducedTransparency()
       ? "Reduced transparency"
@@ -391,34 +432,35 @@ export function createLiquidGlassController(): LiquidGlassController {
     recapture() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
-      if (recaptureTimer != null) {
-        window.clearTimeout(recaptureTimer);
-      }
-      recaptureTimer = window.setTimeout(async () => {
+      clearRecaptureTimer();
+      recaptureTimer = window.setTimeout(() => {
         recaptureTimer = null;
-
-        if (destroyed || !initialized) return;
-
-        const renderer = window.__liquidGLRenderer__;
-
-        try {
-          await Promise.resolve(renderer?.captureSnapshot?.());
-          renderer?._rebuildDynamicVideoTexture?.();
-        } catch (error) {
-          lastError =
-            error instanceof Error
-              ? error.message.slice(0, 160)
-              : "Recapture failed";
-        }
-
-        for (const instance of instances) {
-          instance.updateMetrics?.();
-        }
-
-        adoptRendererCanvas();
-        publishDebug();
-        assertSingleCanvasDev();
+        void runRecapturePass();
       }, RECAPTURE_DEBOUNCE_MS);
+    },
+    recaptureImmediate() {
+      if (destroyed) return;
+      if (mode === "fallback" || mode === "error") return;
+
+      // Cancel pending debounced recapture — immediate owns the next pass.
+      clearRecaptureTimer();
+
+      if (immediateRecaptureInFlight) {
+        immediateRecaptureQueued = true;
+        return;
+      }
+
+      immediateRecaptureInFlight = true;
+      void (async () => {
+        try {
+          do {
+            immediateRecaptureQueued = false;
+            await runRecapturePass();
+          } while (immediateRecaptureQueued && !destroyed);
+        } finally {
+          immediateRecaptureInFlight = false;
+        }
+      })();
     },
     rebuildVideoTexture() {
       if (destroyed) return;
@@ -444,14 +486,12 @@ export function createLiquidGlassController(): LiquidGlassController {
     destroy() {
       destroyed = true;
       initGeneration += 1;
+      immediateRecaptureQueued = false;
       if (refreshTimer != null) {
         window.clearTimeout(refreshTimer);
         refreshTimer = null;
       }
-      if (recaptureTimer != null) {
-        window.clearTimeout(recaptureTimer);
-        recaptureTimer = null;
-      }
+      clearRecaptureTimer();
       clearWatchdog();
       clearRenderer();
       instances = [];

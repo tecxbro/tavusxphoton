@@ -13,7 +13,8 @@ Mini Pho uses **one Vite process** on port `5173`:
 
 | Surface | URL |
 | --- | --- |
-| Call (launcher + FaceTime UI) | `http://127.0.0.1:5173/call/demo` |
+| Home directory | `http://127.0.0.1:5173/` |
+| Garry live call | `http://127.0.0.1:5173/call/garry-tan` |
 
 Do **not** start two Vite processes. Two ports (e.g. 5173 + 5174) means a stale or bumped server — kill the extras first.
 
@@ -62,8 +63,8 @@ Wait until the log shows ready, then report the call URL.
 
 ## 4. How to use
 
-1. Open the call URL.
-2. Press **Call** on the Talk to Gary launcher.
+1. Open the home URL (`http://127.0.0.1:5173/`).
+2. Tap **Garry Tan** on the FaceTime-style home directory.
 3. Allow camera / microphone.
 4. Wait for Gary (needs `TAVUS_TEST_MODE=false` from the start command and valid Tavus credentials in `.env.local`).
 5. End from the FaceTime controls.
@@ -72,7 +73,7 @@ Wait until the log shows ready, then report the call URL.
 
 LiquidGL diagnostics (dev only):
 
-`http://127.0.0.1:5173/call/demo?debugGlass=1`
+`http://127.0.0.1:5173/call/garry-tan?debugGlass=1`
 
 ## Anti-patterns
 

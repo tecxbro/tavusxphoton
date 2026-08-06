@@ -10,7 +10,6 @@ import {
   type PointerEvent,
 } from "react";
 import { CallControlRail } from "./CallControlRail";
-import { CallLauncher } from "./CallLauncher";
 import { CameraActivationFallback } from "./CameraActivationFallback";
 import { ContactPill } from "./ContactPill";
 import { EffectsButton } from "./EffectsButton";
@@ -41,6 +40,8 @@ import { hapticTap } from "../lib/haptics";
 
 interface CallScreenProps {
   config: CallConfig;
+  autoStart?: boolean;
+  onExit: () => void;
 }
 
 function localModeFor(
@@ -67,8 +68,15 @@ function wantsDebugGlass(): boolean {
   return new URLSearchParams(window.location.search).has("debugGlass");
 }
 
-export function CallScreen({ config }: CallScreenProps) {
-  const [phase, dispatch] = useReducer(callReducer, "idle");
+export function CallScreen({
+  config,
+  autoStart = false,
+  onExit,
+}: CallScreenProps) {
+  const [phase, dispatch] = useReducer(
+    callReducer,
+    autoStart ? "bootstrapping" : "idle",
+  );
   const [needsGesture, setNeedsGesture] = useState(false);
   const [backgroundReady, setBackgroundReady] = useState(false);
   const [showGlassDebug, setShowGlassDebug] = useState(false);
@@ -79,11 +87,14 @@ export function CallScreen({ config }: CallScreenProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   // Mirror of reducer phase for async media handlers that must not
   // close over a stale render. Always update alongside dispatch.
-  const phaseRef = useRef<CallPhase>(phase);
+  const phaseRef = useRef<CallPhase>(autoStart ? "bootstrapping" : "idle");
   const transitionTimers = useRef<number[]>([]);
   // Bumped on every beginCall / end so late media and timers ignore prior work.
   const attemptRef = useRef(0);
   const connectingStartedAtRef = useRef<number | null>(null);
+  // Tracks whether beginCall has been kicked for this autoStart mount.
+  const autoStartedRef = useRef(false);
+  const beginCallInFlightRef = useRef(false);
 
   phaseRef.current = phase;
 
@@ -188,6 +199,7 @@ export function CallScreen({ config }: CallScreenProps) {
     clearTransitionTimers();
     attemptRef.current += 1;
     const attempt = attemptRef.current;
+    beginCallInFlightRef.current = true;
 
     clearRemoteMedia();
     setNeedsGesture(false);
@@ -198,8 +210,14 @@ export function CallScreen({ config }: CallScreenProps) {
     dispatch({ type: "START_CALL" });
     phaseRef.current = "bootstrapping";
 
-    await startCall();
-    if (attempt !== attemptRef.current) return;
+    try {
+      await startCall();
+      if (attempt !== attemptRef.current) return;
+    } finally {
+      if (attempt === attemptRef.current) {
+        beginCallInFlightRef.current = false;
+      }
+    }
 
     // startCall owns permission + Tavus create. Infer outcome from streams/error
     // via the effects below and the hook state at completion.
@@ -210,6 +228,32 @@ export function CallScreen({ config }: CallScreenProps) {
     startCall,
     stopTimer,
   ]);
+
+  useEffect(() => {
+    if (!autoStart) return;
+
+    // Defer past React Strict Mode's mount→unmount→remount so we only
+    // create one Tavus conversation / Daily call. Media is already warmed
+    // from the Home tap (armLiveCallFromGesture) so gesture is preserved.
+    let cancelled = false;
+    const outer = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        if (beginCallInFlightRef.current) return;
+        if (attemptRef.current > 0) return;
+        const preRinging =
+          phaseRef.current === "idle" || phaseRef.current === "bootstrapping";
+        if (!preRinging) return;
+        autoStartedRef.current = true;
+        void beginCall();
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(outer);
+    };
+  }, [autoStart, beginCall]);
 
   const handleEndCall = useCallback(() => {
     clearTransitionTimers();
@@ -348,7 +392,8 @@ export function CallScreen({ config }: CallScreenProps) {
     };
   }, [clearTransitionTimers, phase]);
 
-  const showLocal = isActiveCallPhase(phase);
+  const showLocal =
+    isActiveCallPhase(phase) || phase === "bootstrapping";
 
   useEffect(() => {
     if (!showLocal) {
@@ -394,8 +439,12 @@ export function CallScreen({ config }: CallScreenProps) {
   const mode = localModeFor(phase, controlsVisible);
   const morphDurationMs = morphDurationFor(mode, phase);
   const showChrome =
-    isActiveCallPhase(phase) && (phase !== "live" || controlsVisible);
-  const showWaitingFlip = phase === "ringing" || phase === "connecting";
+    (isActiveCallPhase(phase) || phase === "bootstrapping") &&
+    (phase !== "live" || controlsVisible);
+  const showWaitingFlip =
+    phase === "bootstrapping" ||
+    phase === "ringing" ||
+    phase === "connecting";
   const showLiveExtras = phase === "joining" || phase === "live";
   const flipPillVisible =
     showLiveExtras &&
@@ -467,11 +516,11 @@ export function CallScreen({ config }: CallScreenProps) {
 
   if (phase === "idle") {
     return (
-      <CallLauncher
-        starting={starting}
-        onCall={() => {
-          void beginCall();
-        }}
+      <main
+        className="call-screen call-screen--startup"
+        data-testid="call-screen"
+        data-phase="idle"
+        style={screenStyle}
       />
     );
   }
@@ -653,8 +702,7 @@ export function CallScreen({ config }: CallScreenProps) {
           }}
           onClose={() => {
             resetTimer();
-            dispatch({ type: "CLOSE" });
-            phaseRef.current = "ended";
+            onExit();
           }}
         />
       )}
@@ -679,8 +727,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--secondary"
               onClick={() => {
-                dispatch({ type: "CLOSE" });
-                phaseRef.current = "ended";
+                onExit();
               }}
             >
               Close
@@ -693,7 +740,7 @@ export function CallScreen({ config }: CallScreenProps) {
         <section className="error-screen" data-testid="connection-error">
           <h1 className="error-screen__title">Connection Failed</h1>
           <p className="error-screen__body">
-            Could not connect to Gary. Try again.
+            Could not connect to {config.participantName}. Try again.
           </p>
           <div className="btn-row">
             <button
@@ -709,8 +756,7 @@ export function CallScreen({ config }: CallScreenProps) {
               type="button"
               className="btn btn--secondary"
               onClick={() => {
-                dispatch({ type: "CLOSE" });
-                phaseRef.current = "ended";
+                onExit();
               }}
             >
               Close

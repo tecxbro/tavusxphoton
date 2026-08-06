@@ -335,6 +335,65 @@ describe("liquidGlass", () => {
     vi.useRealTimers();
   });
 
+  it("recaptureImmediate captures once, cancels debounce, and never remounts", async () => {
+    vi.useFakeTimers();
+    mockActiveRenderer();
+    const controller = createLiquidGlassController();
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+
+    const rebuild = vi.fn();
+    renderer!._rebuildDynamicVideoTexture = rebuild;
+
+    controller.recapture();
+    controller.recaptureImmediate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+
+    // Debounced timer was cancelled — advancing debounce window adds nothing.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
+  it("coalesces overlapping recaptureImmediate calls into a follow-up pass", async () => {
+    vi.useFakeTimers();
+    mockActiveRenderer();
+    const controller = createLiquidGlassController();
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+
+    let resolveSnapshot!: () => void;
+    let snapshotCalls = 0;
+    renderer!.captureSnapshot = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          snapshotCalls += 1;
+          resolveSnapshot = () => resolve();
+        }),
+    );
+    renderer!._rebuildDynamicVideoTexture = vi.fn();
+
+    controller.recaptureImmediate();
+    controller.recaptureImmediate();
+    controller.recaptureImmediate();
+    expect(snapshotCalls).toBe(1);
+
+    resolveSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    // Queued overlap runs exactly one more pass.
+    expect(snapshotCalls).toBe(2);
+    resolveSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(snapshotCalls).toBe(2);
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
   it("tracks chrome visibility and cleans up the canvas on destroy", () => {
     mockActiveRenderer();
     const controller = createLiquidGlassController();

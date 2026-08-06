@@ -7,15 +7,20 @@ Current runtime: FaceTime UI + Tavus CVI over Daily.
 | Entry | Location | Role |
 |-------|----------|------|
 | Bootstrap | `src/main.tsx` | Mounts React (`StrictMode` + `BrowserRouter`), loads CSS |
-| Routes | `src/App.tsx` | Declares routes; builds `CallConfig` |
+| Routes | `src/App.tsx` | `/` home directory; `/call/:agentId` live or busy call |
 | Call UI | `src/components/CallScreen.tsx` | Owns call phases, chrome, LiquidGL, Tavus lifecycle wiring |
-| Launcher | `src/components/CallLauncher.tsx` | Idle “Talk to Gary” Call button |
+| Home directory | `src/components/HomeScreen.tsx` | FaceTime-style agent grid at `/` |
+| Busy call | `src/components/BusyCallScreen.tsx` | Local-only ring → busy; never Tavus/Daily |
 
 ```mermaid
 flowchart LR
   main["src/main.tsx"] --> app["src/App.tsx"]
-  app -->|"/call/:sessionId"| call["CallScreen.tsx"]
-  call --> launcher["CallLauncher"]
+  app -->|"/"| home["HomeScreen"]
+  app -->|"/call/:agentId"| route["AgentCallRoute"]
+  route -->|Garry live| call["CallScreen.tsx"]
+  route -->|busy| busy["BusyCallScreen"]
+  busy --> mediaBusy["useMediaDevices"]
+  busy --> audioBusy["useCallAudio"]
   call --> tavusHook["useTavusCall"]
   call --> phases["callState reducer"]
   call --> glass["useLiquidGlass / liquidGlass"]
@@ -31,11 +36,11 @@ flowchart LR
 
 | Path | Element | Notes |
 |------|---------|-------|
-| `/` | Redirect → `/call/demo` | |
-| `/call/:sessionId` | `CallScreen` | Query: `name`, `avatar`, `selfAvatar` (same-origin assets only). No remote room URL params. |
-| `*` | Redirect → `/call/demo` | |
+| `/` | `HomeScreen` | Fixed agent directory |
+| `/call/:agentId` | `AgentCallRoute` | Resolves fixed agent data; Garry → `CallScreen` (auto-start); others → `BusyCallScreen`. Unknown ids → `/`. Profile identity is never taken from query params. |
+| `*` | Redirect → `/` | |
 
-Dev-only query on the call route: `debugGlass=1` (ignored outside Vite `DEV`).
+Dev-only query on Garry’s call route: `debugGlass=1` (ignored outside Vite `DEV`).
 
 ## Call flow
 
@@ -72,7 +77,7 @@ stateDiagram-v2
 
 Happy path in `CallScreen`:
 
-1. Idle launcher → Call → `START_CALL` / `startCall()`.
+1. Home directory → Garry card → `/call/garry-tan` → auto `START_CALL` / `startCall()`.
 2. Local camera + Tavus create run together → `ringing` once permissions succeed.
 3. Join Daily room with `conversation_url` + `meeting_token`.
 4. Gary joins → `PAL_JOINED` → `connecting`.
@@ -99,6 +104,8 @@ No browser unload End / beacon.
 | Tavus Vite middleware | `scripts/tavusApiPlugin.ts` |
 | Tavus Vercel adapter | `api/tavus.ts` |
 | Call chrome | `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton`, `SymbolIcon` |
+| Home directory | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `BusyCallScreen`, `src/data/agents.ts`, `src/data/homeLinks.ts` |
+| LiquidGL | `liquidGlass.ts`, `useLiquidGlass` (call), `useHomeLiquidGlass` (home) |
 | Styling | `src/styles/` |
 
 ## Important implementation details
@@ -135,7 +142,7 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 **Mounted on active routes**
 
-`CallScreen`, `CallLauncher`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `EndedScreen`, `CameraActivationFallback`, `SymbolIcon`.
+`CallScreen`, `HomeScreen`, `HomeMenu`, `BusyCallScreen`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `EndedScreen`, `CameraActivationFallback`, `SymbolIcon`.
 
 **Present in the repo but not imported by active routes**
 

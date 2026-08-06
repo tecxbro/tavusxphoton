@@ -7,8 +7,7 @@ The browser never receives `TAVUS_API_KEY`. Media transport is Daily
 ## Final call flow
 
 ```text
-Talk to Gary
-→ Call
+Home directory → Garry Tan card
 → camera / microphone permission
 → create Tavus conversation (server)
 → ringing UI (local camera fullscreen)
@@ -127,9 +126,9 @@ Ended conversations are never reused.
 
 1. Set real `TAVUS_API_KEY` + `TAVUS_PAL_ID` in `.env.local`.
 2. Start with `TAVUS_TEST_MODE=false` (start-the-server does this).
-3. `npm run dev` → open `/call/demo`.
-4. Confirm launcher shows **Talk to Gary** and one **Call** button.
-5. Press Call → allow camera/mic → ringing UI while waiting.
+3. `npm run dev` → open `/` then tap Garry, or open `/call/garry-tan` directly.
+4. Confirm the home directory lists agents and Garry is callable.
+5. Tap Garry Tan → allow camera/mic → ringing UI while waiting.
 6. When Gary’s video appears, pickup morph runs (no fixed 2–3s timer).
 7. Controls, flip, drag, LiquidGL, timer, and End still work.
 8. End returns to the ended screen; Call Again starts a fresh session.

@@ -30,8 +30,8 @@ export interface CallConfig {
 
 export const defaultCall: CallConfig = {
   sessionId: "demo",
-  participantName: "Gary",
-  participantAvatar: "/avatars/pho.jpg",
+  participantName: "Garry Tan",
+  participantAvatar: "/avatars/agents/garry-tan.webp",
 };
 
 export { CALL_MOTION, EASE_OUT_EXPO, SELF_VIEW_LAYOUT } from "./callUi";

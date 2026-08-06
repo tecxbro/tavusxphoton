@@ -10,12 +10,12 @@
  * import { Spectrum } from "spectrum-ts";
  * // ...
  * await space.send(
- *   app("https://mini-pho.example.com/call/demo")
+ *   app("https://mini-pho.example.com/")
  * );
  * ```
  */
-export const MINI_PHO_APP_URL = "https://mini-pho.example.com/call/demo";
+export const MINI_PHO_APP_URL = "https://mini-pho.example.com/";
 
-export function buildMiniPhoAppUrl(sessionId = "demo"): string {
-  return `https://mini-pho.example.com/call/${sessionId}`;
+export function buildMiniPhoAppUrl(agentId = "garry-tan"): string {
+  return `https://mini-pho.example.com/call/${agentId}`;
 }

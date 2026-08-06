@@ -22,7 +22,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:5173/call/demo](http://localhost:5173/call/demo).
+Open [http://localhost:5173/](http://localhost:5173/).
 
 Use one Vite server on port `5173` — do not start multiple copies.
 
@@ -33,8 +33,9 @@ this). When unset, Vite defaults to `true` so creates skip the PAL join.
 
 | Path | Purpose |
 |------|---------|
-| `/` | Redirects to `/call/demo` |
-| `/call/:sessionId` | Call launcher + FaceTime UI (`name`, `avatar`, `selfAvatar` query params) |
+| `/` | FaceTime-style agent directory |
+| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation |
+| `*` | Redirects to `/` |
 
 ## Environment variables
 
@@ -67,10 +68,11 @@ Full CVI notes: [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 ```text
 src/
   main.tsx, App.tsx          # Bootstrap and routes
-  components/                # Call UI + launcher
+  components/                # Home directory + call UI
+  data/                      # Fixed agent directory + home links
   hooks/                     # Media, Daily/Tavus, drag, LiquidGL
   lib/                       # Call state, LiquidGL, tavus helpers
-  styles/                    # Tokens and call/launcher CSS
+  styles/                    # Tokens and home/call CSS
 api/tavus.ts                 # Vercel adapter for Tavus helper
 scripts/tavusApiPlugin.ts    # Vite middleware for the same API
 patches/                     # liquid-gl@2.0.1 patch

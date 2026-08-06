@@ -11,8 +11,13 @@
   font-family: var(--font-system);
 }
 
-.call-visual-stage,
-#liquid-gl-snapshot {
+.call-screen--startup {
+  /* Black shell while auto-start leaves idle — never flash the old launcher. */
+  background: #000;
+}
+
+.call-screen .call-visual-stage,
+.call-screen #liquid-gl-snapshot {
   position: absolute;
   inset: 0;
   width: 100%;

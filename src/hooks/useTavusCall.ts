@@ -73,6 +73,34 @@ function isRemoteParticipant(participant: DailyParticipant): boolean {
   return !participant.local;
 }
 
+/**
+ * Serialize Daily leave/destroy so Strict Mode remount (autoStart) cannot
+ * createCallObject while a previous instance is still tearing down.
+ */
+let dailyTeardownChain: Promise<void> = Promise.resolve();
+
+function enqueueDailyTeardown(call: DailyCall): Promise<void> {
+  dailyTeardownChain = dailyTeardownChain
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        if (!call.isDestroyed()) {
+          await call.leave();
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        if (!call.isDestroyed()) {
+          await call.destroy();
+        }
+      } catch {
+        // ignore
+      }
+    });
+  return dailyTeardownChain;
+}
+
 export function useTavusCall(): UseTavusCallResult {
   const {
     stream: localStream,
@@ -230,20 +258,7 @@ export function useTavusCall(): UseTavusCallResult {
     callRef.current = null;
     if (!call) return;
     removeListeners(call);
-    try {
-      if (!call.isDestroyed()) {
-        await call.leave();
-      }
-    } catch {
-      // ignore
-    }
-    try {
-      if (!call.isDestroyed()) {
-        await call.destroy();
-      }
-    } catch {
-      // ignore
-    }
+    await enqueueDailyTeardown(call);
   }, [removeListeners]);
 
   const endConversationIfNeeded = useCallback(async () => {
@@ -275,9 +290,15 @@ export function useTavusCall(): UseTavusCallResult {
       let createdConversationId: string | null = null;
 
       try {
+        // Wait for any prior Daily teardown (Strict Mode remount race).
+        await dailyTeardownChain.catch(() => undefined);
+        if (generation !== generationRef.current) {
+          return;
+        }
+
         const call = DailyIframe.createCallObject();
         if (generation !== generationRef.current) {
-          await call.destroy();
+          await enqueueDailyTeardown(call);
           return;
         }
         callRef.current = call;
@@ -468,12 +489,12 @@ export function useTavusCall(): UseTavusCallResult {
   useEffect(() => {
     return () => {
       generationRef.current += 1;
+      startInFlightRef.current = null;
       const call = callRef.current;
       callRef.current = null;
       if (call) {
         removeListeners(call);
-        void call.leave().catch(() => undefined);
-        void call.destroy().catch(() => undefined);
+        void enqueueDailyTeardown(call);
       }
       // Do not end Tavus on unmount / unexpected close — participant_left_timeout.
       conversationIdRef.current = null;

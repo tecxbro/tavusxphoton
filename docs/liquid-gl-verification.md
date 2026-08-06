@@ -11,20 +11,31 @@ Companion to [`ARCHITECTURE.md`](../ARCHITECTURE.md). Run this guide when changi
 ## Import and initialization
 
 - Import: `src/lib/liquidGlass.ts` → `import liquidGL from "liquid-gl"`
-- React lifecycle: `src/hooks/useLiquidGlass.ts`
-- Mount site: `src/components/CallScreen.tsx` while the call is in an active phase and the visual background is ready
+- Call React lifecycle: `src/hooks/useLiquidGlass.ts` (CallScreen active phases)
+- Home React lifecycle: `src/hooks/useHomeLiquidGlass.ts` (HomeScreen only — do not reuse call-phase hooks)
+- Mount site (call): `src/components/CallScreen.tsx` while the call is in an active phase and the visual background is ready
+- Mount site (home): `src/components/HomeScreen.tsx`; destroyed on navigate before the call renderer mounts
 
 Controller creation currently mounts **active** options when WebGL is available. Reduced option presets exist in `buildOptions("reduced")` for remount/refresh paths; automatic FPS-based switching is not implemented.
 
 ## Snapshot and targets
 
-- Snapshot selector: `#liquid-gl-snapshot`
+- Snapshot selector: `#liquid-gl-snapshot` (call styles scoped as `.call-screen #liquid-gl-snapshot`; home owns its snapshot in `home.css`)
 - Target selector: `.liquidGL`
-- Snapshot DOM: remote stage + local camera surface inside `.call-visual-stage`
+- Call snapshot DOM: remote stage + local camera surface inside `.call-visual-stage`
+- Home snapshot DOM: FaceTime title + agent cards (scrollable directory)
+- Home chrome outside the snapshot: Edit, morphing `HomeMenu` shell, Hire me — those three are the only Home `.liquidGL` targets
+- Home → call: exit animation (~420ms, reduced-motion → 0), then `destroy()` Home LiquidGL before navigate so both renderers are never active together
 - Control chrome remains outside the snapshot
 - Interactive controls themselves are the `.liquidGL` targets; symbols and labels live in a `.content` child above the glass
 - Camera/mic buttons keep the `liquidGL` class in every state and fade a `.control-btn__solid` white surface for enabled states
-- The shared WebGL canvas is adopted into `.liquid-canvas-layer` inside `.call-screen`: video < canvas < controls < content < sheets
+- The shared WebGL canvas is adopted into `.liquid-canvas-layer` inside `.call-screen` or `.home-screen`: video/directory < canvas < controls < content < sheets
+
+### Home scroll + menu morph
+
+- Directory scroll coalesces with `requestAnimationFrame`, calls `recaptureImmediate()` at most once every 96ms, skips while the menu is morphing, and schedules normal `recapture()` after 140ms idle
+- Menu open/close uses `useLayoutMorph` with `refreshImmediate()` on start / frame / finish — never recapture per animation frame
+- `recaptureImmediate()` cancels pending debounced recapture, coalesces overlapping requests, captures + rebuilds video texture, updates lens metrics, and never remounts `liquidGL()` / the renderer
 
 ## Active configuration (baseline)
 
@@ -154,7 +165,7 @@ Do not call `_rebuildDynamicVideoTexture()` or `recapture()` during morph start/
 ## Manual verification checklist
 
 1. Run `npm run build` and confirm the production bundle contains `liquid-gl` source (`rg -l "liquidGL" dist/assets`).
-2. Open plain `/call/demo` with `npm run dev` in the target browser / Photon environment.
+2. Open plain `/call/garry-tan` with `npm run dev` in the target browser / Photon environment.
 3. Grant camera permission, start Gary, and wait for ringing.
 4. Wait at least two seconds after pickup (fullscreen-to-PiP completion).
 5. Keep controls visible and confirm contact pill, Effects, and More continue refracting the remote video.
