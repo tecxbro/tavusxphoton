@@ -128,6 +128,7 @@ The `liquid-gl@2.0.1` patch (`patches/liquid-gl+2.0.1.patch`) changes how live `
 - **One shared canvas** — videos are drawn into the single renderer texture / canvas (not a second LiquidGL instance).
 - **Deterministic rebuild** — `_rebuildDynamicVideoTexture()` uploads `staticSnapshotCanvas` over the full texture at `(0,0)`, clears `_videoFrameState`, rescans, and redraws eligible videos. Used after a completed `captureSnapshot()`, not during FLIP morph frames.
 - **CSS opacity** — effective computed opacity is part of the dynamic-video cache key. Opacity below `1` forces the compositing path (not opaque blit) so glass follows the visible DOM fade (e.g. `.remote-video-surface` reveal). Do not remove that DOM fade when changing this path.
+- **Remote Tavus video exception** — the remote `<video>` is marked with `data-liquid-video-upload="canvas"` and always uses the Canvas2D staging path. A browser/WebRTC video-to-WebGL texture runtime A/B test showed that the direct opaque WebGL video blit could produce black texture pixels after a settled snapshot rebuild. Local and other unmarked videos retain the normal eligibility rules.
 - **Not a layout animation tracker** — LiquidGL does **not** follow FLIP transforms into the shared texture mid-morph. Morph `onStart` / `onFrame` update lens metrics only (`refreshImmediate`). Morph `onFinish` schedules one settled `recapture()` which awaits snapshot then rebuilds videos at final geometry.
 
 App flow:
@@ -153,19 +154,20 @@ Do not call `_rebuildDynamicVideoTexture()` or `recapture()` during morph start/
 ## Manual verification checklist
 
 1. Run `npm run build` and confirm the production bundle contains `liquid-gl` source (`rg -l "liquidGL" dist/assets`).
-2. Open `/call/demo?debugGlass=1` with `npm run dev` in the target browser / Photon environment.
-3. Grant camera permission and wait for ringing.
-4. Confirm debug mode reaches `active` on WebGL-capable browsers (or `fallback` / `error` when forced).
-5. Confirm refraction is visible (not a flat frosted overlay) and LiquidGL shadows are not clipped.
-6. Confirm call icons (camera, mic, end, more, flip, effects, chevron) render above glass lenses in the correct color.
-7. Confirm exactly one LiquidGL renderer canvas (`window.__miniPhoLiquidGlassDebug__.canvasCount === 1`).
-8. In DevTools, confirm `.liquidGL` computed `backdrop-filter` is `none` while active.
-9. Force fallback with `window.__miniPhoForceGlassFallback__ = true` + reload and confirm CSS blur returns.
-10. Toggle mic/camera and hide/show controls repeatedly — canvas count must stay at 1.
-11. Navigate away from the call route and confirm the LiquidGL canvas is removed.
-12. Fullscreen → PiP morph: no full-white LiquidGL canvas mid-animation; after settle, glass refracts remote + local without black/opaque control glass.
+2. Open plain `/call/demo` with `npm run dev` in the target browser / Photon environment.
+3. Grant camera permission, start Gary, and wait for ringing.
+4. Wait at least two seconds after pickup (fullscreen-to-PiP completion).
+5. Keep controls visible and confirm contact pill, Effects, and More continue refracting the remote video.
+6. Confirm Flip continues refracting the local PiP.
+7. Confirm the baseline white-blast fix remains intact: no white blast during the fullscreen-to-PiP morph.
+8. Confirm exactly one LiquidGL renderer canvas (`window.__miniPhoLiquidGlassDebug__.canvasCount === 1`, or `?debugGlass=1`).
+9. In DevTools, confirm `.liquidGL` computed `backdrop-filter` is `none` while active.
+10. Toggle camera off and on once — glass remains correct and canvas count stays at 1.
+11. Force fallback with `window.__miniPhoForceGlassFallback__ = true` + reload and confirm CSS blur returns.
+12. Navigate away from the call route and confirm the LiquidGL canvas is removed.
 13. Confirm remote glass rendering follows the visible opacity transition on join.
 14. Confirm a remote video that appears after LiquidGL init (e.g. ignored during ringing, then activated) is discovered by the renderer rescan alone.
+15. End the call immediately after the checks above.
 
 ## Detecting duplicate canvases
 

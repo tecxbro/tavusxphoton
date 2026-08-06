@@ -401,4 +401,90 @@ describe("liquidGL video texture rebuild (patched 2.0.1)", () => {
 
     expect(updateSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("routes marked canvas-upload videos through Canvas2D, not direct WebGL", () => {
+    const remote = document.createElement("video");
+    remote.dataset.liquidVideoUpload = "canvas";
+    stage.append(remote);
+    prepareVideo(remote, {
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+
+    texSubImage2D.mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockClear();
+    (renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>).mockClear();
+
+    renderer._rebuildDynamicVideoTexture();
+
+    expect(texSubImage2D).toHaveBeenCalledWith(
+      renderer.gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      renderer.gl.RGBA,
+      renderer.gl.UNSIGNED_BYTE,
+      renderer.staticSnapshotCanvas,
+    );
+    expect(renderer._blitVideoToTexture).not.toHaveBeenCalled();
+    expect(renderer._tmpCtx.drawImage).toHaveBeenCalled();
+    expect(renderer._videoNodes).toEqual([remote]);
+    expect(renderer._videoFrameState.get(remote)).toEqual(
+      expect.objectContaining({
+        time: remote.currentTime,
+        geom: expect.any(String),
+      }),
+    );
+  });
+
+  it("keeps direct WebGL blit for unmarked eligible videos", () => {
+    const local = document.createElement("video");
+    stage.append(local);
+    prepareVideo(local, {
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
+
+    renderer._rebuildDynamicVideoTexture();
+
+    expect(renderer._blitVideoToTexture).toHaveBeenCalled();
+  });
+
+  it("passes cover crop parameters into Canvas2D drawImage for marked videos", () => {
+    const remote = document.createElement("video");
+    remote.dataset.liquidVideoUpload = "canvas";
+    remote.style.objectFit = "cover";
+    remote.style.objectPosition = "50% 50%";
+    stage.append(remote);
+    // 640x480 into a square → cover crops width to 480 centered at x=80
+    prepareVideo(remote, {
+      videoWidth: 640,
+      videoHeight: 480,
+      rect: { left: 0, top: 0, width: 200, height: 200 },
+    });
+
+    const drawImage = renderer._tmpCtx.drawImage as ReturnType<typeof vi.fn>;
+    drawImage.mockClear();
+    (renderer._blitVideoToTexture as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
+
+    renderer._rebuildDynamicVideoTexture();
+
+    expect(renderer._blitVideoToTexture).not.toHaveBeenCalled();
+    expect(drawImage).toHaveBeenCalledWith(
+      remote,
+      80,
+      0,
+      480,
+      480,
+      0,
+      0,
+      200,
+      200,
+    );
+  });
 });

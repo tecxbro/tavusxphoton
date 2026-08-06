@@ -503,6 +503,10 @@ export function CallScreen({ config }: CallScreenProps) {
               data-liquid-ignore={
                 phase === "joining" || phase === "live" ? undefined : ""
               }
+              // Browser/WebRTC video→WebGL texture blitting produced black
+              // pixels after post-snapshot rebuilds; runtime A/B confirmed
+              // Canvas2D drawImage stays correct for this remote stream.
+              data-liquid-video-upload="canvas"
               data-testid="remote-video"
               aria-hidden={!showRemote}
             />

@@ -35,11 +35,19 @@ function installAnimationHarness() {
   }> = [];
 
   class MockKeyframeEffect {
+    target: Element;
+    keyframes: Keyframe[] | PropertyIndexedKeyframes | null;
+    options?: number | KeyframeEffectOptions;
+
     constructor(
-      public target: Element,
-      public keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
-      public options?: number | KeyframeEffectOptions,
-    ) {}
+      target: Element,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeEffectOptions,
+    ) {
+      this.target = target;
+      this.keyframes = keyframes;
+      this.options = options;
+    }
   }
 
   class MockAnimation {

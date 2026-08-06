@@ -1,5 +1,5 @@
 diff --git a/node_modules/liquid-gl/liquidGL.js b/node_modules/liquid-gl/liquidGL.js
-index e5e90cf..448e6bb 100644
+index e5e90cf..321f909 100644
 --- a/node_modules/liquid-gl/liquidGL.js
 +++ b/node_modules/liquid-gl/liquidGL.js
 @@ -2700,8 +2700,193 @@ const liquidGL = (() => {
@@ -242,7 +242,7 @@ index e5e90cf..448e6bb 100644
          const prevState = this._videoFrameState.get(vid);
          if (
            prevState &&
-@@ -2789,15 +3010,42 @@ const liquidGL = (() => {
+@@ -2789,15 +3010,46 @@ const liquidGL = (() => {
          };
          const isRounded = Object.values(scaledRadii).some((r) => r > 0);
  
@@ -272,7 +272,11 @@ index e5e90cf..448e6bb 100644
 +        v = v + vh * fy0;
 +        vh = vh * fzh;
 +
++        const forceCanvasUpload =
++          vid.dataset.liquidVideoUpload === "canvas";
++
          if (
++          !forceCanvasUpload &&
            !isRounded &&
 +          opacity >= 1 &&
            this._initVideoBlit() &&
@@ -289,7 +293,7 @@ index e5e90cf..448e6bb 100644
            })
          ) {
            return;
-@@ -2837,7 +3085,25 @@ const liquidGL = (() => {
+@@ -2837,7 +3089,25 @@ const liquidGL = (() => {
              drawH,
            );
  
