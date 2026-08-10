@@ -1,12 +1,11 @@
-import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { BusyCallScreen } from "./components/BusyCallScreen";
 import { CallScreen } from "./components/CallScreen";
-import { HomeScreen } from "./components/HomeScreen";
 import { callConfigFromAgent, getAgentById } from "./data/agents";
+import { HIRE_ME_URL } from "./data/homeLinks";
 
 function AgentCallRoute() {
   const { agentId } = useParams();
-  const navigate = useNavigate();
   const agent = getAgentById(agentId);
 
   if (!agent) {
@@ -14,7 +13,7 @@ function AgentCallRoute() {
   }
 
   const onExit = () => {
-    navigate("/");
+    window.location.replace(HIRE_ME_URL);
   };
 
   const config = callConfigFromAgent(agent);
@@ -29,7 +28,7 @@ function AgentCallRoute() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<HomeScreen />} />
+      <Route path="/" element={<Navigate to="/call/garry-tan" replace />} />
       <Route path="/call/:agentId" element={<AgentCallRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

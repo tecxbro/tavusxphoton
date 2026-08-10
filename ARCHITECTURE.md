@@ -7,18 +7,20 @@ Current runtime: FaceTime UI + Tavus CVI over Daily.
 | Entry | Location | Role |
 |-------|----------|------|
 | Bootstrap | `src/main.tsx` | Mounts React (`StrictMode` + `BrowserRouter`), loads CSS |
-| Routes | `src/App.tsx` | `/` home directory; `/call/:agentId` live or busy call |
+| Routes | `src/App.tsx` | `/` → `/call/garry-tan`; `/call/:agentId` live or busy call; exit → `HIRE_ME_URL` |
 | Call UI | `src/components/CallScreen.tsx` | Owns call phases, chrome, LiquidGL, Tavus lifecycle wiring |
-| Home directory | `src/components/HomeScreen.tsx` | FaceTime-style agent grid at `/` |
+| Home directory | `src/components/HomeScreen.tsx` | FaceTime-style agent grid (dormant; not mounted) |
 | Busy call | `src/components/BusyCallScreen.tsx` | Local-only ring → busy; never Tavus/Daily |
 
 ```mermaid
 flowchart LR
   main["src/main.tsx"] --> app["src/App.tsx"]
-  app -->|"/"| home["HomeScreen"]
-  app -->|"/call/:agentId"| route["AgentCallRoute"]
+  app -->|"/"| redirect["Navigate to /call/garry-tan"]
+  redirect --> route["AgentCallRoute"]
+  app -->|"/call/:agentId"| route
   route -->|Garry live| call["CallScreen.tsx"]
   route -->|busy| busy["BusyCallScreen"]
+  route -->|onExit| hire["HIRE_ME_URL"]
   busy --> mediaBusy["useMediaDevices"]
   busy --> audioBusy["useCallAudio"]
   call --> tavusHook["useTavusCall"]
@@ -36,8 +38,8 @@ flowchart LR
 
 | Path | Element | Notes |
 |------|---------|-------|
-| `/` | `HomeScreen` | Fixed agent directory |
-| `/call/:agentId` | `AgentCallRoute` | Resolves fixed agent data; Garry → `CallScreen` (auto-start); others → `BusyCallScreen`. Unknown ids → `/`. Profile identity is never taken from query params. |
+| `/` | `Navigate` → `/call/garry-tan` | Direct Garry landing (no agent directory) |
+| `/call/:agentId` | `AgentCallRoute` | Resolves fixed agent data; Garry → `CallScreen` (auto-start); others → `BusyCallScreen`. Unknown ids → `/`. Exit uses `window.location.replace(HIRE_ME_URL)`. Profile identity is never taken from query params. |
 | `*` | Redirect → `/` | |
 
 Dev-only query on Garry’s call route: `debugGlass=1` (ignored outside Vite `DEV`).
@@ -77,12 +79,12 @@ stateDiagram-v2
 
 Happy path in `CallScreen`:
 
-1. Home directory → Garry card → `/call/garry-tan` → auto `START_CALL` / `startCall()`.
+1. `/` → `/call/garry-tan` → auto `START_CALL` / `startCall()`.
 2. Local camera + Tavus create run together → `ringing` once permissions succeed.
 3. Join Daily room with `conversation_url` + `meeting_token`.
 4. Gary joins → `PAL_JOINED` → `connecting`.
 5. First remote video frame → `joining` (layout morph) → `live`.
-6. End → Tavus End Conversation + Daily leave/destroy → `ended`.
+6. End → await Tavus End Conversation + Daily leave/destroy → `window.location.replace(HIRE_ME_URL)` (`https://pleasegivemeaninternship.com`). `EndedScreen` stays hidden during teardown/redirect.
 
 Unexpected disconnect cleanup is owned by Tavus `participant_left_timeout: 10`.
 No browser unload End / beacon.
@@ -104,7 +106,7 @@ No browser unload End / beacon.
 | Tavus Vite middleware | `scripts/tavusApiPlugin.ts` |
 | Tavus Vercel adapter | `api/tavus.ts` |
 | Call chrome | `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton`, `SymbolIcon` |
-| Home directory | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `BusyCallScreen`, `src/data/agents.ts`, `src/data/homeLinks.ts` |
+| Home directory (dormant) | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `BusyCallScreen`, `src/data/agents.ts`, `src/data/homeLinks.ts` |
 | LiquidGL | `liquidGlass.ts`, `useLiquidGlass` (call), `useHomeLiquidGlass` (home) |
 | Styling | `src/styles/` |
 
@@ -142,7 +144,9 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 **Mounted on active routes**
 
-`CallScreen`, `HomeScreen`, `HomeMenu`, `BusyCallScreen`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `EndedScreen`, `CameraActivationFallback`, `SymbolIcon`.
+`CallScreen`, `BusyCallScreen`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `EndedScreen`, `CameraActivationFallback`, `SymbolIcon`.
+
+Dormant (present, not mounted from `App`): `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`.
 
 **Present in the repo but not imported by active routes**
 

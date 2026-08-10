@@ -80,6 +80,7 @@ export function CallScreen({
   const [needsGesture, setNeedsGesture] = useState(false);
   const [backgroundReady, setBackgroundReady] = useState(false);
   const [showGlassDebug, setShowGlassDebug] = useState(false);
+  const [exiting, setExiting] = useState(false);
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
@@ -261,8 +262,19 @@ export function CallScreen({
     stopTimer();
     dispatch({ type: "END" });
     phaseRef.current = "ended";
-    void endTavusCall();
-  }, [clearRemoteMedia, clearTransitionTimers, endTavusCall, stopTimer]);
+    setExiting(true);
+
+    void (async () => {
+      await endTavusCall();
+      onExit();
+    })();
+  }, [
+    clearRemoteMedia,
+    clearTransitionTimers,
+    endTavusCall,
+    onExit,
+    stopTimer,
+  ]);
 
   // Advance from bootstrapping as soon as local media is ready so the ringing
   // screen stays visible while Tavus create / Daily join continue.
@@ -691,7 +703,7 @@ export function CallScreen({
         </div>
       ) : null}
 
-      {phase === "ended" && (
+      {phase === "ended" && !exiting && (
         <EndedScreen
           duration={timerFormatted}
           onCallAgain={() => {

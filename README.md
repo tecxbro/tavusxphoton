@@ -22,7 +22,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:5173/](http://localhost:5173/).
+Open [http://localhost:5173/](http://localhost:5173/) — you land on the Garry
+call (mic/camera prompt, then connect). Ending the call leaves for
+[pleasegivemeaninternship.com](https://pleasegivemeaninternship.com).
 
 Use one Vite server on port `5173` — do not start multiple copies.
 
@@ -33,8 +35,8 @@ this). When unset, Vite defaults to `true` so creates skip the PAL join.
 
 | Path | Purpose |
 |------|---------|
-| `/` | FaceTime-style agent directory |
-| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation |
+| `/` | Redirects to `/call/garry-tan` (direct Garry landing) |
+| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation. Exit replaces the page with `https://pleasegivemeaninternship.com` |
 | `*` | Redirects to `/` |
 
 ## Environment variables
