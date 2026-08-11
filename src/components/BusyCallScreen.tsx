@@ -17,6 +17,7 @@ import type { CallPhase } from "../lib/callState";
 import { callScreenCssVars } from "../lib/callUi";
 import { hapticTap } from "../lib/haptics";
 import { CallControlRail } from "./CallControlRail";
+import { CallVisualShell } from "./CallVisualShell";
 import { ContactPill } from "./ContactPill";
 import { EffectsButton } from "./EffectsButton";
 import { LocalCameraSurface } from "./LocalCameraSurface";
@@ -65,7 +66,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
   const [cancelled, setCancelled] = useState(false);
   const [backgroundReady, setBackgroundReady] = useState(false);
 
-  const screenRef = useRef<HTMLElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const localNodeRef = useRef<HTMLDivElement | null>(null);
   const ringTimerRef = useRef<number | null>(null);
@@ -121,7 +121,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
     }
   }, []);
 
-  // Mount → request local camera / mic. Unmount always stops tracks.
   useEffect(() => {
     void requestPermissions();
 
@@ -132,7 +131,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
     };
   }, [clearExitTimer, clearRingTimer, requestPermissions, stopAll]);
 
-  // Local media ready → ringing; permission failure → permission-error.
   useEffect(() => {
     if (phase !== "bootstrapping") return;
 
@@ -146,7 +144,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
     }
   }, [localStream, mediaError, phase, requesting]);
 
-  // Ring for the fixed agent duration, then busy (ended SFX via audio mapping).
   useEffect(() => {
     if (phase !== "ringing") {
       clearRingTimer();
@@ -167,7 +164,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
     };
   }, [agent.ringDurationMs, clearRingTimer, phase, stopAll]);
 
-  // Cancel: ended sound once, then leave after the audio effect can fire.
   useEffect(() => {
     if (!cancelled) return;
     clearExitTimer();
@@ -220,24 +216,22 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
   }, [requestPermissions]);
 
   return (
-    <main
-      ref={screenRef}
-      className="call-screen"
-      data-testid="busy-call-screen"
-      data-phase={phase}
-      data-agent-id={agent.id}
-      data-liquid-mode={liquidMode}
-      data-camera={videoEnabled ? "on" : "off"}
+    <CallVisualShell
+      testId="busy-call-screen"
+      phase={phase}
+      liquidMode={liquidMode}
+      cameraOn={videoEnabled}
       style={screenStyle}
-    >
-      <div id="liquid-gl-snapshot" className="call-visual-stage">
-        <div id="video-stage">
+      dataAttrs={{ "agent-id": agent.id }}
+      stage={
+        <>
           {/* No remote <video> — busy agents never join Daily/Tavus. */}
           <div className="remote-video-wrap" aria-hidden="true" />
           <div className="video-overlay" />
-        </div>
-
-        {showLocal ? (
+        </>
+      }
+      localCamera={
+        showLocal ? (
           <LocalCameraSurface
             stream={localStream}
             videoEnabled={videoEnabled}
@@ -247,56 +241,55 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
             nodeRef={localNodeRef}
             videoRef={localVideoRef}
           />
-        ) : null}
-      </div>
-
-      <div className="liquid-canvas-layer" aria-hidden="true" />
-
-      {showLocal ? (
-        <div
-          className="facetime-chrome is-visible"
-          data-testid="busy-call-chrome"
-          data-visible="true"
-        >
-          <ContactPill
-            name={agent.displayName}
-            avatar={agent.avatarSrc}
-            connecting={false}
-            onMetricsInvalidate={refreshImmediate}
-          />
-          <EffectsButton />
-
-          <CallControlRail
-            videoEnabled={videoEnabled}
-            audioEnabled={audioEnabled}
-            onToggleCamera={() => {
-              toggleVideo();
-            }}
-            onToggleMic={() => {
-              toggleAudio();
-            }}
-            onEnd={handleCancel}
-          />
-
-          <button
-            type="button"
-            className="waiting-flip-btn control-btn liquidGL"
+        ) : null
+      }
+      chrome={
+        showLocal ? (
+          <div
+            className="facetime-chrome is-visible"
+            data-testid="busy-call-chrome"
             data-visible="true"
-            aria-label="Switch camera"
-            title="Switch camera"
-            disabled={isFlippingCamera}
-            onClick={() => {
-              void flipCamera();
-            }}
-            data-testid="busy-waiting-flip"
           >
-            <span className="content">
-              <SymbolIcon name="flip-camera" />
-            </span>
-          </button>
-        </div>
-      ) : null}
+            <ContactPill
+              name={agent.displayName}
+              avatar={agent.avatarSrc}
+              connecting={false}
+              onMetricsInvalidate={refreshImmediate}
+            />
+            <EffectsButton />
 
+            <CallControlRail
+              videoEnabled={videoEnabled}
+              audioEnabled={audioEnabled}
+              onToggleCamera={() => {
+                toggleVideo();
+              }}
+              onToggleMic={() => {
+                toggleAudio();
+              }}
+              onEnd={handleCancel}
+            />
+
+            <button
+              type="button"
+              className="waiting-flip-btn control-btn liquidGL"
+              data-visible="true"
+              aria-label="Switch camera"
+              title="Switch camera"
+              disabled={isFlippingCamera}
+              onClick={() => {
+                void flipCamera();
+              }}
+              data-testid="busy-waiting-flip"
+            >
+              <span className="content">
+                <SymbolIcon name="flip-camera" />
+              </span>
+            </button>
+          </div>
+        ) : null
+      }
+    >
       {phase === "busy" ? (
         <section className="ended" data-testid="busy-agent-busy">
           <div className="ended__icon" aria-hidden />
@@ -349,6 +342,6 @@ export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
           </div>
         </section>
       ) : null}
-    </main>
+    </CallVisualShell>
   );
 }

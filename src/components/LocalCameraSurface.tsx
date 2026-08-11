@@ -6,9 +6,9 @@ import {
   type RefObject,
 } from "react";
 import { getInitials } from "../lib/callState";
+import type { LocalCameraMode } from "../lib/callUi";
 
-/** Self-view layout mode driven by call phase and chrome visibility. */
-export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
+export type { LocalCameraMode };
 
 interface LocalCameraSurfaceProps {
   stream: MediaStream | null;

@@ -28,14 +28,14 @@
 | Task | Primary files | Also check |
 |------|---------------|------------|
 | Routes / agent call | `src/App.tsx`, `src/data/agents.ts` | `ARCHITECTURE.md` |
-| Home directory | `HomeScreen.tsx`, `AgentGrid.tsx`, `AgentCard.tsx`, `src/data/agents.ts`, `src/data/homeLinks.ts` | `src/styles/home.css`, `public/avatars/agents/` |
-| Call phases / flow | `src/lib/callState.ts`, `src/components/CallScreen.tsx` | `src/tests/unit/callState.test.ts` |
+| Agent directory data | `src/data/agents.ts`, `src/data/homeLinks.ts` (`HIRE_ME_URL`) | `public/avatars/agents/` |
+| Call phases / flow | `src/lib/callState.ts`, `src/hooks/useCallLifecycle.ts`, `CallScreen.tsx` | `src/tests/unit/callState.test.ts` |
+| Call visual shell | `CallVisualShell.tsx` | `CallScreen.tsx`, `BusyCallScreen.tsx` |
 | Tavus + Daily call | `src/hooks/useTavusCall.ts`, `src/lib/tavus/` | `docs/tavus-cvi.md`, `api/tavus.ts` |
 | Local media | `src/hooks/useMediaDevices.ts` | `src/tests/unit/hooks.test.ts` |
 | Self-view drag | `src/hooks/useDraggableSelfView.ts`, `LocalCameraSurface.tsx` | CallScreen drag wiring |
-| LiquidGL | `src/lib/liquidGlass.ts`, `src/hooks/useLiquidGlass.ts`, `src/hooks/useHomeLiquidGlass.ts` | `patches/`, `docs/liquid-gl-verification.md` |
+| LiquidGL | `src/lib/liquidGlass.ts`, `src/hooks/useLiquidGlass.ts` | `patches/`, `docs/liquid-gl-verification.md` |
 | Call chrome / symbols | `CallControlRail.tsx`, `SymbolIcon.tsx`, `src/assets/call-symbols/` | `callControls.test.tsx` |
-| Home menu | `HomeMenu.tsx`, `src/data/homeLinks.ts` | Morphing LiquidGL shell |
 | Busy call sim | `BusyCallScreen.tsx` | Local media ring → busy; no Tavus/Daily |
 | Styles | `src/styles/` | Avoid reordering LiquidGL/CSS stacking rules |
 

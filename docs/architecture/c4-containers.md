@@ -33,5 +33,5 @@ C4Container
 
 ## Out of scope here
 
-Dormant home directory UI (`HomeScreen` et al.) is not mounted from active
-routes — see ownership notes in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
+Agent directory data (`src/data/agents.ts`) drives `/call/:agentId` only —
+there is no mounted home grid UI. See [`ARCHITECTURE.md`](../../ARCHITECTURE.md).

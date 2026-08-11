@@ -10,6 +10,8 @@ export type LiquidGlassMode =
 
 export interface LiquidGlassController {
   mode: LiquidGlassMode;
+  /** Subscribe to mode changes; returns an unsubscribe function. */
+  subscribeMode(listener: (mode: LiquidGlassMode) => void): () => void;
   /** Debounced lens metric refresh — never recreates the renderer. */
   refresh(): void;
   /** Immediate lens metric update after a DOM commit (e.g. contact label). */
@@ -258,6 +260,7 @@ export function createLiquidGlassController(): LiquidGlassController {
   let initGeneration = 0;
   let immediateRecaptureInFlight = false;
   let immediateRecaptureQueued = false;
+  const modeListeners = new Set<(mode: LiquidGlassMode) => void>();
 
   const publishDebug = () => {
     if (typeof window === "undefined") return;
@@ -277,6 +280,9 @@ export function createLiquidGlassController(): LiquidGlassController {
     mode = next;
     document.documentElement.dataset.liquidGl = next;
     publishDebug();
+    for (const listener of modeListeners) {
+      listener(next);
+    }
   };
 
   const clearWatchdog = () => {
@@ -404,6 +410,12 @@ export function createLiquidGlassController(): LiquidGlassController {
     get mode() {
       return mode;
     },
+    subscribeMode(listener: (next: LiquidGlassMode) => void) {
+      modeListeners.add(listener);
+      return () => {
+        modeListeners.delete(listener);
+      };
+    },
     refresh() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
@@ -507,6 +519,7 @@ export function createLiquidGlassController(): LiquidGlassController {
       clearRenderer();
       instances = [];
       initialized = false;
+      modeListeners.clear();
       delete document.documentElement.dataset.liquidGl;
       delete document.documentElement.dataset.liquidChrome;
       if (window.__miniPhoLiquidGlassDebug__) {

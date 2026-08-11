@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CallPhase } from "../lib/callState";
-import type { LocalCameraMode } from "../components/LocalCameraSurface";
+import type { LocalCameraMode } from "../lib/callUi";
 import {
   createLiquidGlassController,
   type LiquidGlassController,
@@ -74,7 +74,9 @@ export function useLiquidGlass({
       setError(window.__miniPhoLiquidGlassDebug__?.lastError ?? null);
     };
 
-    const modePoll = window.setInterval(syncMode, 200);
+    const unsubscribeMode = controller.subscribeMode(() => {
+      syncMode();
+    });
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -95,7 +97,7 @@ export function useLiquidGlass({
     window.addEventListener("resize", onResize);
 
     return () => {
-      window.clearInterval(modePoll);
+      unsubscribeMode();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("orientationchange", onOrientation);
       window.visualViewport?.removeEventListener("resize", onResize);

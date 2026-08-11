@@ -125,6 +125,29 @@ describe("liquidGlass", () => {
     controller.destroy();
   });
 
+  it("notifies subscribeMode listeners when mode changes", () => {
+    let finishInit: (() => void) | undefined;
+    liquidGLMock.mockImplementation((options: MockOptions) => {
+      finishInit = () => options.on?.init?.({});
+      return { updateMetrics: vi.fn() };
+    });
+
+    const controller = createLiquidGlassController();
+    expect(controller.mode).toBe("initializing");
+
+    const modes: string[] = [];
+    const unsubscribe = controller.subscribeMode((mode) => {
+      modes.push(mode);
+    });
+
+    finishInit?.();
+    expect(modes).toEqual(["active"]);
+    expect(controller.mode).toBe("active");
+
+    unsubscribe();
+    controller.destroy();
+  });
+
   it("restores pointer events stripped by the lens constructor", () => {
     mockActiveRenderer();
     createLiquidGlassController();

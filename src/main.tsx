@@ -6,7 +6,6 @@ import "./styles/tokens.css";
 import "./styles/global.css";
 import "./styles/glass.css";
 import "./styles/call.css";
-import "./styles/home.css";
 
 /** Bootstrap: StrictMode + BrowserRouter + global FaceTime / LiquidGL CSS. */
 createRoot(document.getElementById("root")!).render(

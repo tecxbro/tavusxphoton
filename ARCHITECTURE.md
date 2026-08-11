@@ -17,8 +17,8 @@ Current runtime: FaceTime UI + Tavus CVI over Daily.
 |-------|----------|------|
 | Bootstrap | `src/main.tsx` | Mounts React (`StrictMode` + `BrowserRouter`), loads CSS |
 | Routes | `src/App.tsx` | `/` → `/call/garry-tan`; `/call/:agentId` live or busy call; exit → `HIRE_ME_URL` |
-| Call UI | `src/components/CallScreen.tsx` | Owns call phases, chrome, LiquidGL, Tavus lifecycle wiring |
-| Home directory | `src/components/HomeScreen.tsx` | FaceTime-style agent grid (dormant; not mounted) |
+| Call UI | `src/components/CallScreen.tsx` | Presentation + LiquidGL; phases via `useCallLifecycle` |
+| Call visual shell | `src/components/CallVisualShell.tsx` | Shared stage / canvas / chrome slots for live + busy |
 | Busy call | `src/components/BusyCallScreen.tsx` | Local-only ring → busy; never Tavus/Daily |
 
 ```mermaid
@@ -55,7 +55,7 @@ Dev-only query on Garry’s call route: `debugGlass=1` (ignored outside Vite `DE
 
 ## Call flow
 
-Phases live in `src/lib/callState.ts`. `CallScreen` advances them via `callReducer` plus synchronous `phaseRef` updates for async handlers.
+Phases live in `src/lib/callState.ts`. `useCallLifecycle` advances them via `callReducer` through an atomic `advance()` that updates `phaseRef` with each dispatch.
 
 ```mermaid
 stateDiagram-v2
@@ -93,7 +93,7 @@ Happy path in `CallScreen`:
 3. Join Daily room with `conversation_url` + `meeting_token`.
 4. Gary joins → `PAL_JOINED` → `connecting`.
 5. First remote video frame → `joining` (layout morph) → `live`.
-6. End → await Tavus End Conversation + Daily leave/destroy → `window.location.replace(HIRE_ME_URL)` (`https://pleasegivemeaninternship.com`). `EndedScreen` stays hidden during teardown/redirect.
+6. End → await Tavus End Conversation + Daily leave/destroy → `window.location.replace(HIRE_ME_URL)` (`https://pleasegivemeaninternship.com`).
 
 Unexpected disconnect cleanup is owned by Tavus `participant_left_timeout: 10`.
 No browser unload End / beacon.
@@ -103,7 +103,8 @@ No browser unload End / beacon.
 | Area | Primary file |
 |------|----------------|
 | Routing | `src/App.tsx` |
-| Call orchestration | `src/components/CallScreen.tsx` |
+| Call orchestration | `src/hooks/useCallLifecycle.ts` |
+| Call presentation | `src/components/CallScreen.tsx`, `CallVisualShell.tsx` |
 | Call phases | `src/lib/callState.ts` |
 | Tavus + Daily lifecycle | `src/hooks/useTavusCall.ts` |
 | Local media | `src/hooks/useMediaDevices.ts` |
@@ -115,20 +116,19 @@ No browser unload End / beacon.
 | Tavus Vite middleware | `scripts/tavusApiPlugin.ts` |
 | Tavus Vercel adapter | `api/tavus.ts` |
 | Call chrome | `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton`, `SymbolIcon` |
-| Home directory (dormant) | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon` |
-| Agent directory data | `src/data/agents.ts`, `src/data/homeLinks.ts` |
-| LiquidGL | `liquidGlass.ts`, `useLiquidGlass` (call), `useHomeLiquidGlass` (home) |
+| Agent directory data | `src/data/agents.ts`, `src/data/homeLinks.ts` (`HIRE_ME_URL`) |
+| LiquidGL | `liquidGlass.ts`, `useLiquidGlass` |
 | Styling | `src/styles/` |
 
 ## Important implementation details
 
 ### Reducer state vs refs
 
-`phase` from `useReducer` drives renders. `phaseRef` mirrors it so media callbacks and timers can read the latest phase without stale closures. Dispatches and `phaseRef` updates stay paired.
+`phase` from `useReducer` drives renders. `useCallLifecycle` keeps a `phaseRef` updated only through `advance(action)` so media callbacks and timers read the latest phase without stale closures.
 
 ### Stale media attempts
 
-`attemptRef` in `CallScreen` and `requestGeneration` in `useMediaDevices` invalidate overlapping `beginCall` / `getUserMedia` / flip work. Late streams are stopped and discarded. Camera flip failures use `cameraActionError` (recoverable) and never the fatal media / connection error path.
+`attemptRef` in `useCallLifecycle` and `requestGeneration` in `useMediaDevices` invalidate overlapping `beginCall` / `getUserMedia` / flip work. Late streams are stopped and discarded. Camera flip failures use `cameraActionError` (recoverable) and never the fatal media / connection error path.
 
 ### Local camera stays mounted
 
@@ -154,9 +154,7 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 **Mounted on active routes**
 
-`CallScreen`, `BusyCallScreen`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `EndedScreen`, `CameraActivationFallback`, `SymbolIcon`.
-
-Dormant (present, not mounted from `App`): `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`.
+`CallScreen`, `BusyCallScreen`, `CallVisualShell`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `SymbolIcon`.
 
 **Present in the repo but not imported by active routes**
 

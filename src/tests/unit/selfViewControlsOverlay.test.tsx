@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it } from "vitest";
 import { SelfViewControlsOverlay } from "../../components/SelfViewControlsOverlay";
-import type { LocalCameraMode } from "../../components/LocalCameraSurface";
+import type { LocalCameraMode } from "../../lib/callUi";
 
 describe("SelfViewControlsOverlay", () => {
   it("stays mounted and measurable in fullscreen with the Flip pill hidden", () => {

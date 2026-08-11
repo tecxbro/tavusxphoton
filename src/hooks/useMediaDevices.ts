@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CameraFacing } from "../lib/callState";
-import { takeWarmedLocalMedia } from "../lib/liveCallBootstrap";
-
 export type FlipBeforeAttach = (
   track: MediaStreamTrack,
 ) => void | Promise<void>;
@@ -168,8 +166,6 @@ async function acquireReplacementVideoTrack(
 
 /**
  * Browser local camera/mic ownership for call screens.
- * Adopts gesture-warmed media from `liveCallBootstrap` when present so SPA
- * navigation does not prompt a second `getUserMedia`.
  *
  * @returns Stream, toggles, flip transaction, and fatal vs recoverable errors.
  */
@@ -226,9 +222,7 @@ export function useMediaDevices(): MediaDevicesState {
 
     const pending = (async (): Promise<MediaStream | null> => {
       try {
-        // Prefer media warmed in the Home tap (user activation) when present.
-        const warmed = takeWarmedLocalMedia();
-        const media = warmed ? await warmed : await getMedia("user", true);
+        const media = await getMedia("user", true);
         if (!media) {
           if (generation !== requestGeneration.current) return null;
           setError("Permission denied");

@@ -70,7 +70,7 @@ Full CVI notes: [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 ```text
 src/
   main.tsx, App.tsx          # Bootstrap and routes
-  components/                # Home directory + call UI
+  components/                # Call UI (live + busy)
   data/                      # Fixed agent directory + home links
   hooks/                     # Media, Daily/Tavus, drag, LiquidGL
   lib/                       # Call state, LiquidGL, tavus helpers

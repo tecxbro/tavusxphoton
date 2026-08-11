@@ -3,26 +3,21 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent,
 } from "react";
 import { CallControlRail } from "./CallControlRail";
-import { CameraActivationFallback } from "./CameraActivationFallback";
+import { CallVisualShell } from "./CallVisualShell";
 import { ContactPill } from "./ContactPill";
 import { EffectsButton } from "./EffectsButton";
-import { EndedScreen } from "./EndedScreen";
-import {
-  LocalCameraSurface,
-  type LocalCameraMode,
-} from "./LocalCameraSurface";
+import { LocalCameraSurface } from "./LocalCameraSurface";
 import { SelfViewControlsOverlay } from "./SelfViewControlsOverlay";
 import { SymbolIcon } from "./SymbolIcon";
 import { useAutoHideControls } from "../hooks/useAutoHideControls";
 import { useCallAudio } from "../hooks/useCallAudio";
-import { useCallTimer } from "../hooks/useCallTimer";
+import { useCallLifecycle } from "../hooks/useCallLifecycle";
 import { useDraggableSelfView } from "../hooks/useDraggableSelfView";
 import { useFirstVideoFrame } from "../hooks/useFirstVideoFrame";
 import { useLayoutMorph } from "../hooks/useLayoutMorph";
@@ -30,12 +25,15 @@ import { useLiquidGlass } from "../hooks/useLiquidGlass";
 import { useSafeViewport } from "../hooks/useSafeViewport";
 import { useTavusCall } from "../hooks/useTavusCall";
 import {
-  callReducer,
   isActiveCallPhase,
   type CallConfig,
   type CallPhase,
 } from "../lib/callState";
-import { CALL_MOTION, callScreenCssVars } from "../lib/callUi";
+import {
+  CALL_MOTION,
+  callScreenCssVars,
+  type LocalCameraMode,
+} from "../lib/callUi";
 import { hapticTap } from "../lib/haptics";
 
 interface CallScreenProps {
@@ -72,8 +70,8 @@ function wantsDebugGlass(): boolean {
 }
 
 /**
- * Live Garry FaceTime UI: owns call phases via {@link callReducer}, LiquidGL,
- * self-view drag/morph, and Tavus/Daily lifecycle through {@link useTavusCall}.
+ * Live Garry FaceTime UI: presentation, LiquidGL, self-view drag/morph,
+ * and Tavus/Daily wiring. Phase orchestration lives in {@link useCallLifecycle}.
  *
  * @param props.config - Display identity from fixed agent data.
  * @param props.autoStart - Auto-dispatch `START_CALL` on mount when true.
@@ -84,36 +82,17 @@ export function CallScreen({
   autoStart = false,
   onExit,
 }: CallScreenProps) {
-  const [phase, dispatch] = useReducer(
-    callReducer,
-    autoStart ? "bootstrapping" : "idle",
-  );
-  const [needsGesture, setNeedsGesture] = useState(false);
   const [backgroundReady, setBackgroundReady] = useState(false);
   const [showGlassDebug, setShowGlassDebug] = useState(false);
-  const [exiting, setExiting] = useState(false);
 
   const screenRef = useRef<HTMLElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  // Mirror of reducer phase for async media handlers that must not
-  // close over a stale render. Always update alongside dispatch.
-  const phaseRef = useRef<CallPhase>(autoStart ? "bootstrapping" : "idle");
-  const transitionTimers = useRef<number[]>([]);
-  // Bumped on every beginCall / end so late media and timers ignore prior work.
-  const attemptRef = useRef(0);
-  const connectingStartedAtRef = useRef<number | null>(null);
-  // Tracks whether beginCall has been kicked for this autoStart mount.
-  const autoStartedRef = useRef(false);
-  const beginCallInFlightRef = useRef(false);
-
-  phaseRef.current = phase;
 
   const {
     startCall,
     endCall: endTavusCall,
-    resetCall,
     localStream,
     remoteVideoStream,
     remoteAudioStream,
@@ -131,14 +110,41 @@ export function CallScreen({
     starting,
   } = useTavusCall();
 
+  const clearRemoteMedia = useCallback(() => {
+    const remote = remoteRef.current;
+    if (remote) {
+      remote.pause();
+      remote.srcObject = null;
+      remote.removeAttribute("data-revealed");
+    }
+    const remoteAudio = remoteAudioRef.current;
+    if (remoteAudio) {
+      remoteAudio.pause();
+      remoteAudio.srcObject = null;
+    }
+  }, []);
+
+  const onResetVisuals = useCallback(() => {
+    setBackgroundReady(false);
+  }, []);
+
+  const { phase, beginCall, handleEndCall, onRemoteFirstFrame } =
+    useCallLifecycle({
+      autoStart,
+      startCall,
+      endTavusCall,
+      onExit,
+      localStream,
+      palJoined,
+      callError,
+      starting,
+      clearRemoteMedia,
+      onResetVisuals,
+    });
+
   useCallAudio(phase, audioEnabled);
 
   const viewport = useSafeViewport();
-  const {
-    formatted: timerFormatted,
-    reset: resetTimer,
-    stop: stopTimer,
-  } = useCallTimer(phase === "live");
 
   const {
     visible: controlsVisible,
@@ -165,177 +171,14 @@ export function CallScreen({
     safeInsets: viewport.safeInsets,
   });
 
-  const clearTransitionTimers = useCallback(() => {
-    transitionTimers.current.forEach((id) => window.clearTimeout(id));
-    transitionTimers.current = [];
-  }, []);
-
-  const clearRemoteMedia = useCallback(() => {
-    const remote = remoteRef.current;
-    if (remote) {
-      remote.pause();
-      remote.srcObject = null;
-      remote.removeAttribute("data-revealed");
-    }
-    const remoteAudio = remoteAudioRef.current;
-    if (remoteAudio) {
-      remoteAudio.pause();
-      remoteAudio.srcObject = null;
-    }
-  }, []);
-
   useEffect(() => {
     if (dragging) pauseControls();
     else if (phase === "live") resumeControls();
   }, [dragging, pauseControls, phase, resumeControls]);
 
   useEffect(() => {
-    return () => {
-      clearTransitionTimers();
-    };
-  }, [clearTransitionTimers]);
-
-  useEffect(() => {
     setShowGlassDebug(wantsDebugGlass());
   }, []);
-
-  useEffect(() => {
-    if (phase === "connecting") {
-      connectingStartedAtRef.current = performance.now();
-      return;
-    }
-    connectingStartedAtRef.current = null;
-  }, [phase]);
-
-  const beginCall = useCallback(async () => {
-    clearTransitionTimers();
-    attemptRef.current += 1;
-    const attempt = attemptRef.current;
-    beginCallInFlightRef.current = true;
-
-    clearRemoteMedia();
-    setNeedsGesture(false);
-    setBackgroundReady(false);
-    stopTimer();
-    resetTimer();
-
-    dispatch({ type: "START_CALL" });
-    phaseRef.current = "bootstrapping";
-
-    try {
-      await startCall();
-      if (attempt !== attemptRef.current) return;
-    } finally {
-      if (attempt === attemptRef.current) {
-        beginCallInFlightRef.current = false;
-      }
-    }
-
-    // startCall owns permission + Tavus create. Infer outcome from streams/error
-    // via the effects below and the hook state at completion.
-  }, [
-    clearRemoteMedia,
-    clearTransitionTimers,
-    resetTimer,
-    startCall,
-    stopTimer,
-  ]);
-
-  useEffect(() => {
-    if (!autoStart) return;
-
-    // Defer past React Strict Mode's mount→unmount→remount so we only
-    // create one Tavus conversation / Daily call. Media is already warmed
-    // from the Home tap (armLiveCallFromGesture) so gesture is preserved.
-    let cancelled = false;
-    const outer = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        if (cancelled) return;
-        if (beginCallInFlightRef.current) return;
-        if (attemptRef.current > 0) return;
-        const preRinging =
-          phaseRef.current === "idle" || phaseRef.current === "bootstrapping";
-        if (!preRinging) return;
-        autoStartedRef.current = true;
-        void beginCall();
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(outer);
-    };
-  }, [autoStart, beginCall]);
-
-  const handleEndCall = useCallback(() => {
-    clearTransitionTimers();
-    clearRemoteMedia();
-    stopTimer();
-    dispatch({ type: "END" });
-    phaseRef.current = "ended";
-    setExiting(true);
-
-    void (async () => {
-      await endTavusCall();
-      onExit();
-    })();
-  }, [
-    clearRemoteMedia,
-    clearTransitionTimers,
-    endTavusCall,
-    onExit,
-    stopTimer,
-  ]);
-
-  // Advance from bootstrapping as soon as local media is ready so the ringing
-  // screen stays visible while Tavus create / Daily join continue.
-  useEffect(() => {
-    if (phase !== "bootstrapping") return;
-
-    if (localStream) {
-      dispatch({ type: "PERMISSIONS_GRANTED" });
-      phaseRef.current = "ringing";
-      setNeedsGesture(false);
-      return;
-    }
-
-    if (!starting && callError) {
-      const message = callError;
-      if (/NotAllowedError|Permission denied|Permission/i.test(message)) {
-        dispatch({ type: "PERMISSIONS_DENIED" });
-        phaseRef.current = "permission-error";
-        return;
-      }
-      dispatch({ type: "CONNECTION_FAILED" });
-      phaseRef.current = "connection-error";
-    }
-  }, [callError, localStream, phase, starting]);
-
-  useEffect(() => {
-    if (!palJoined) return;
-    if (phaseRef.current !== "ringing") return;
-    dispatch({ type: "PAL_JOINED" });
-    phaseRef.current = "connecting";
-  }, [palJoined]);
-
-  useEffect(() => {
-    // Fatal connection / Tavus / Daily / initial-media errors only.
-    // cameraActionError must never enter this path.
-    if (!callError) return;
-    if (
-      phaseRef.current === "ringing" ||
-      phaseRef.current === "connecting" ||
-      phaseRef.current === "joining" ||
-      phaseRef.current === "live"
-    ) {
-      clearTransitionTimers();
-      clearRemoteMedia();
-      stopTimer();
-      dispatch({ type: "CONNECTION_FAILED" });
-      phaseRef.current = "connection-error";
-      void endTavusCall();
-    }
-  }, [callError, clearRemoteMedia, clearTransitionTimers, endTavusCall, stopTimer]);
 
   const showRemote =
     phase === "connecting" || phase === "joining" || phase === "live";
@@ -374,49 +217,9 @@ export function CallScreen({
     }
   }, [remoteAudioStream, showRemote]);
 
-  useFirstVideoFrame(remoteRef, phase === "connecting", () => {
-    if (phaseRef.current !== "connecting") return;
-    const started = connectingStartedAtRef.current ?? performance.now();
-    const elapsed = performance.now() - started;
-    const remaining = Math.max(0, CALL_MOTION.connectingMinMs - elapsed);
-    const attempt = attemptRef.current;
+  useFirstVideoFrame(remoteRef, phase === "connecting", onRemoteFirstFrame);
 
-    const advance = () => {
-      if (attempt !== attemptRef.current) return;
-      if (phaseRef.current !== "connecting") return;
-      dispatch({ type: "REMOTE_FRAME" });
-      phaseRef.current = "joining";
-    };
-
-    if (remaining === 0) {
-      advance();
-      return;
-    }
-
-    const id = window.setTimeout(advance, remaining);
-    transitionTimers.current.push(id);
-  });
-
-  useEffect(() => {
-    if (phase !== "joining") return;
-    const attempt = attemptRef.current;
-    clearTransitionTimers();
-    const id = window.setTimeout(() => {
-      if (attempt !== attemptRef.current) return;
-      dispatch({ type: "JOIN_COMPLETE" });
-      phaseRef.current = "live";
-    }, CALL_MOTION.joinMs);
-    transitionTimers.current.push(id);
-    return () => {
-      window.clearTimeout(id);
-      transitionTimers.current = transitionTimers.current.filter(
-        (timerId) => timerId !== id,
-      );
-    };
-  }, [clearTransitionTimers, phase]);
-
-  const showLocal =
-    isActiveCallPhase(phase) || phase === "bootstrapping";
+  const showLocal = isActiveCallPhase(phase) || phase === "bootstrapping";
 
   useEffect(() => {
     if (!showLocal) {
@@ -443,11 +246,9 @@ export function CallScreen({
   }, [showLocal, videoEnabled, backgroundReady]);
 
   const flipCamera = useCallback(() => {
-    // Disable only while a flip transaction is in flight.
     if (isFlippingCamera) return;
     hapticTap();
     bumpControls();
-    // Transaction owns recovery; supply Daily attachment from useTavusCall.
     void flipMediaCamera(replaceVideoTrack);
   }, [bumpControls, flipMediaCamera, isFlippingCamera, replaceVideoTrack]);
 
@@ -493,14 +294,9 @@ export function CallScreen({
   });
 
   const finishSelfViewMorph = useCallback(() => {
-    // One settled snapshot + video rebuild after morph transforms clear.
     recapture();
   }, [recapture]);
 
-  // CallScreen owns the only self-view morph: local camera primary, Flip
-  // overlay follower (outside #liquid-gl-snapshot). Morph frames update lens
-  // metrics only — never rebuild/recapture mid-FLIP (stale static wipe +
-  // transformed rects turn glass white/black).
   useLayoutMorph(dragNodeRef, {
     activeKey: mode,
     durationMs: morphDurationMs,
@@ -510,8 +306,6 @@ export function CallScreen({
     onFinish: finishSelfViewMorph,
   });
 
-  // Flip visibility changes (drag, camera switch, phase, chrome) need one
-  // immediate metric refresh after the commit — not only on drag completion.
   useLayoutEffect(() => {
     refreshImmediate();
   }, [flipPillVisible, refreshImmediate]);
@@ -549,18 +343,16 @@ export function CallScreen({
   }
 
   return (
-    <main
-      ref={screenRef}
-      className="call-screen"
-      data-testid="call-screen"
-      data-phase={phase}
-      data-chrome={chromeVisibleAttr}
-      data-camera={videoEnabled ? "on" : "off"}
-      data-liquid-mode={liquidMode}
+    <CallVisualShell
+      screenRef={screenRef}
+      testId="call-screen"
+      phase={phase}
+      liquidMode={liquidMode}
+      cameraOn={videoEnabled}
       style={screenStyle}
-    >
-      <div id="liquid-gl-snapshot" className="call-visual-stage">
-        <div id="video-stage">
+      chromeAttr={chromeVisibleAttr}
+      stage={
+        <>
           <div className="remote-video-wrap">
             <video
               ref={remoteRef}
@@ -590,9 +382,10 @@ export function CallScreen({
             />
           </div>
           <div className="video-overlay" />
-        </div>
-
-        {showLocal && (
+        </>
+      }
+      localCamera={
+        showLocal ? (
           <LocalCameraSurface
             stream={localStream}
             videoEnabled={videoEnabled}
@@ -608,78 +401,79 @@ export function CallScreen({
             onPointerMove={onDragPointerMove}
             onPointerUp={onDragPointerUp}
           />
-        )}
-      </div>
-
-      <div className="liquid-canvas-layer" aria-hidden="true" />
-
-      {showLocal && (
-        <SelfViewControlsOverlay
-          mode={mode}
-          style={selfStyle}
-          overlayRef={flipOverlayRef}
-          flipVisible={flipPillVisible}
-          flipDisabled={isFlippingCamera}
-          onFlip={flipCamera}
-        />
-      )}
-
-      {phase === "live" && !controlsVisible && (
-        <button
-          type="button"
-          className="tap-catcher"
-          aria-label="Show call controls"
-          onClick={() => showControls()}
-          data-testid="tap-restore"
-        />
-      )}
-
-      <div
-        className={`facetime-chrome ${showChrome ? "is-visible" : "is-hidden"}`}
-        data-testid="facetime-chrome"
-        data-visible={showChrome}
-        aria-hidden={!showChrome}
-      >
-        <ContactPill
-          name={config.participantName}
-          avatar={config.participantAvatar}
-          connecting={phase === "connecting"}
-          onMetricsInvalidate={refreshImmediate}
-        />
-        <EffectsButton />
-
-        <CallControlRail
-          videoEnabled={videoEnabled}
-          audioEnabled={audioEnabled}
-          onToggleCamera={() => {
-            bumpControls();
-            toggleVideo();
-          }}
-          onToggleMic={() => {
-            bumpControls();
-            toggleAudio();
-          }}
-          onEnd={handleEndCall}
-        />
-
-        <button
-          type="button"
-          className="waiting-flip-btn control-btn liquidGL"
-          data-visible={showWaitingFlip}
-          aria-hidden={!showWaitingFlip}
-          aria-label="Switch camera"
-          title="Switch camera"
-          disabled={isFlippingCamera}
-          onClick={flipCamera}
-          data-testid="waiting-flip"
-          tabIndex={showWaitingFlip && !isFlippingCamera ? 0 : -1}
+        ) : null
+      }
+      overlays={
+        <>
+          {showLocal ? (
+            <SelfViewControlsOverlay
+              mode={mode}
+              style={selfStyle}
+              overlayRef={flipOverlayRef}
+              flipVisible={flipPillVisible}
+              flipDisabled={isFlippingCamera}
+              onFlip={flipCamera}
+            />
+          ) : null}
+          {phase === "live" && !controlsVisible ? (
+            <button
+              type="button"
+              className="tap-catcher"
+              aria-label="Show call controls"
+              onClick={() => showControls()}
+              data-testid="tap-restore"
+            />
+          ) : null}
+        </>
+      }
+      chrome={
+        <div
+          className={`facetime-chrome ${showChrome ? "is-visible" : "is-hidden"}`}
+          data-testid="facetime-chrome"
+          data-visible={showChrome}
+          aria-hidden={!showChrome}
         >
-          <span className="content">
-            <SymbolIcon name="flip-camera" />
-          </span>
-        </button>
-      </div>
+          <ContactPill
+            name={config.participantName}
+            avatar={config.participantAvatar}
+            connecting={phase === "connecting"}
+            onMetricsInvalidate={refreshImmediate}
+          />
+          <EffectsButton />
 
+          <CallControlRail
+            videoEnabled={videoEnabled}
+            audioEnabled={audioEnabled}
+            onToggleCamera={() => {
+              bumpControls();
+              toggleVideo();
+            }}
+            onToggleMic={() => {
+              bumpControls();
+              toggleAudio();
+            }}
+            onEnd={handleEndCall}
+          />
+
+          <button
+            type="button"
+            className="waiting-flip-btn control-btn liquidGL"
+            data-visible={showWaitingFlip}
+            aria-hidden={!showWaitingFlip}
+            aria-label="Switch camera"
+            title="Switch camera"
+            disabled={isFlippingCamera}
+            onClick={flipCamera}
+            data-testid="waiting-flip"
+            tabIndex={showWaitingFlip && !isFlippingCamera ? 0 : -1}
+          >
+            <span className="content">
+              <SymbolIcon name="flip-camera" />
+            </span>
+          </button>
+        </div>
+      }
+    >
       {showGlassDebug && debug ? (
         <aside
           className="liquid-glass-debug"
@@ -695,14 +489,6 @@ export function CallScreen({
         </aside>
       ) : null}
 
-      {needsGesture && (
-        <CameraActivationFallback
-          onStart={() => {
-            void beginCall();
-          }}
-        />
-      )}
-
       {cameraActionError && isActiveCallPhase(phase) ? (
         <div
           className="camera-action-toast"
@@ -714,23 +500,7 @@ export function CallScreen({
         </div>
       ) : null}
 
-      {phase === "ended" && !exiting && (
-        <EndedScreen
-          duration={timerFormatted}
-          onCallAgain={() => {
-            void (async () => {
-              await resetCall();
-              void beginCall();
-            })();
-          }}
-          onClose={() => {
-            resetTimer();
-            onExit();
-          }}
-        />
-      )}
-
-      {phase === "permission-error" && !needsGesture && (
+      {phase === "permission-error" && (
         <section className="error-screen" data-testid="permission-error">
           <h1 className="error-screen__title">Camera Access Needed</h1>
           <p className="error-screen__body">
@@ -787,6 +557,6 @@ export function CallScreen({
           </div>
         </section>
       )}
-    </main>
+    </CallVisualShell>
   );
 }

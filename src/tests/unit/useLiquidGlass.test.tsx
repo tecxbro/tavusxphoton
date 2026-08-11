@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiquidGlass } from "../../hooks/useLiquidGlass";
 import type { CallPhase } from "../../lib/callState";
-import type { LocalCameraMode } from "../../components/LocalCameraSurface";
+import type { LocalCameraMode } from "../../lib/callUi";
 
 const liquidGLMock = vi.fn();
 

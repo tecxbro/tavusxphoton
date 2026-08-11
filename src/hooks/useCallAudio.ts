@@ -3,17 +3,10 @@ import {
   createCallAudioController,
   type CallAudioController,
 } from "../lib/callAudio";
+import type { CallPhase } from "../lib/callState";
 
-export type CallAudioPhase =
-  | "idle"
-  | "bootstrapping"
-  | "ringing"
-  | "connecting"
-  | "joining"
-  | "live"
-  | "ended"
-  | "permission-error"
-  | "connection-error";
+/** Audio SFX phases mirror the live call phase model. */
+export type CallAudioPhase = CallPhase;
 
 /**
  * Maps call-phase + mic state to FaceTime SFX. Side effects run in effects

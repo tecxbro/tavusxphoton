@@ -4,7 +4,7 @@ import {
   callConfigFromAgent,
   getAgentById,
 } from "../../data/agents";
-import { HIRE_ME_URL, HOME_LINKS } from "../../data/homeLinks";
+import { HIRE_ME_URL } from "../../data/homeLinks";
 
 describe("agents", () => {
   it("keeps the fixed directory order and Garry as the only live agent", () => {
@@ -55,19 +55,7 @@ describe("agents", () => {
 });
 
 describe("homeLinks", () => {
-  it("keeps Hire me on the fixed internship URL and the approved menu set", () => {
+  it("keeps hangup exit on the fixed internship URL", () => {
     expect(HIRE_ME_URL).toBe("https://pleasegivemeaninternship.com");
-    expect(HOME_LINKS.map((item) => item.id)).toEqual([
-      "calls",
-      "home",
-      "linkedin",
-      "twitter",
-    ]);
-    expect(HOME_LINKS.find((item) => item.id === "calls")?.selected).toBe(true);
-    for (const item of HOME_LINKS) {
-      if (item.href) {
-        expect(item.href).toBe(HIRE_ME_URL);
-      }
-    }
   });
 });

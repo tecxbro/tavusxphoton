@@ -1,5 +1,5 @@
 import type { CSSProperties, RefObject } from "react";
-import type { LocalCameraMode } from "./LocalCameraSurface";
+import type { LocalCameraMode } from "../lib/callUi";
 import { SymbolIcon } from "./SymbolIcon";
 
 interface SelfViewControlsOverlayProps {

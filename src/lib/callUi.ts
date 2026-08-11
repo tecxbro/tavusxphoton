@@ -1,5 +1,8 @@
 /** Shared FaceTime call UI layout and motion — single source of truth for TS + CSS. */
 
+/** Self-view layout mode driven by call phase and chrome visibility. */
+export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
+
 export const SELF_VIEW_LAYOUT = {
   leftInset: 18,
   rightInset: 20,
