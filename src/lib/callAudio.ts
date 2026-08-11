@@ -1,3 +1,7 @@
+/**
+ * FaceTime SFX asset paths under `/audio/facetime/`.
+ * Keys match {@link CallAudioController} playback methods.
+ */
 export const CALL_AUDIO = {
   ringing: "/audio/facetime/vc~ringing.wav",
   connected: "/audio/facetime/vc~invitation-accepted.wav",
@@ -132,6 +136,11 @@ export class CallAudioController {
   }
 }
 
+/**
+ * Construct a {@link CallAudioController} with default `HTMLAudioElement`s.
+ *
+ * @returns Fresh controller for one call screen lifetime.
+ */
 export function createCallAudioController(): CallAudioController {
   return new CallAudioController();
 }

@@ -1,8 +1,13 @@
 import type { CallConfig } from "../lib/callState";
 
+/** Whether the agent routes to live Tavus (`live`) or the busy simulation. */
 export type AgentAvailability = "live" | "busy";
 export type AgentImageMode = "circle" | "full-bleed";
 
+/**
+ * Fixed directory entry for an agent. Call identity is derived only from this
+ * data — never from query params or browser-supplied PAL / room URLs.
+ */
 export interface AgentProfile {
   id: string;
   displayName: string;
@@ -12,6 +17,7 @@ export interface AgentProfile {
   objectPosition?: string;
   statusLabel: string;
   availability: AgentAvailability;
+  /** Busy-sim ring duration before the busy state; live agents ignore this. */
   ringDurationMs?: number;
 }
 
@@ -124,12 +130,23 @@ export const AGENTS: readonly AgentProfile[] = [
   },
 ] as const;
 
+/**
+ * Look up a fixed agent by id.
+ *
+ * @param id - Route `agentId` param; falsy yields `null`.
+ * @returns Matching profile or `null` when unknown.
+ */
 export function getAgentById(id: string | undefined): AgentProfile | null {
   if (!id) return null;
   return AGENTS.find((agent) => agent.id === id) ?? null;
 }
 
-/** Call identity comes only from fixed agent data — never from query params. */
+/**
+ * Build call display identity from fixed agent data — never from query params.
+ *
+ * @param agent - Resolved directory profile.
+ * @returns {@link CallConfig} for CallScreen / BusyCallScreen.
+ */
 export function callConfigFromAgent(agent: AgentProfile): CallConfig {
   return {
     sessionId: agent.id,

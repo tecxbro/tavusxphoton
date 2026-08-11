@@ -27,6 +27,13 @@ export interface UseLiquidGlassResult {
   recapture: () => void;
 }
 
+/**
+ * Mounts the shared LiquidGL controller for call chrome when enabled.
+ * Tears down on disable / unmount; never creates a second renderer canvas.
+ *
+ * @param input - Enable flags, phase, chrome visibility, and camera layout.
+ * @returns Mode, error, and refresh / recapture / rebuild helpers.
+ */
 export function useLiquidGlass({
   enabled,
   backgroundReady,

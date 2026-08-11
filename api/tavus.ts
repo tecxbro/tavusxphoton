@@ -1,6 +1,11 @@
+/**
+ * Vercel Node adapter for the shared Tavus proxy in `tavus-api-vite-ssr.ts`.
+ * Keeps `TAVUS_API_KEY` server-side; browser never receives secrets.
+ */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleTavusRequest } from "../src/lib/tavus/tavus-api-vite-ssr.js";
 
+/** Convert a Vercel Node request into a Fetch API `Request`. */
 function toWebRequest(req: VercelRequest): Request {
   const host = req.headers.host || "localhost";
   const protoHeader = req.headers["x-forwarded-proto"];
@@ -36,6 +41,12 @@ function toWebRequest(req: VercelRequest): Request {
   return new Request(url, init);
 }
 
+/**
+ * `POST /api/tavus` — create or end a Tavus conversation.
+ *
+ * @param req - Vercel request (JSON body with `action`).
+ * @param res - Vercel response mirrored from {@link handleTavusRequest}.
+ */
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,

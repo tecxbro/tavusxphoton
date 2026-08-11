@@ -2,7 +2,11 @@ interface CameraActivationFallbackProps {
   onStart: () => void;
 }
 
-/** One-time gesture fallback when auto media access requires a user tap. */
+/**
+ * One-time gesture fallback when auto media access requires a user tap.
+ *
+ * @param props.onStart - Resume call bootstrap after the gesture.
+ */
 export function CameraActivationFallback({
   onStart,
 }: CameraActivationFallbackProps) {

@@ -6,8 +6,10 @@ The browser never receives `TAVUS_API_KEY`. Media transport is Daily
 
 ## Final call flow
 
+C4 dynamic diagram: [`docs/architecture/c4-dynamic-live-call.md`](architecture/c4-dynamic-live-call.md).
+
 ```text
-Home directory → Garry Tan card
+/ → /call/garry-tan (auto-start)
 → camera / microphone permission
 → create Tavus conversation (server)
 → ringing UI (local camera fullscreen)
@@ -16,7 +18,7 @@ Home directory → Garry Tan card
 → first rendered remote video frame
 → FaceTime pickup morph
 → live conversation
-→ End → Tavus End Conversation + Daily leave/destroy → ended screen
+→ End → Tavus End Conversation + Daily leave/destroy → hire-me redirect
 ```
 
 Unexpected tab / webview close does **not** call End Conversation from the

@@ -90,3 +90,4 @@ docs/                        # Subsystem guides
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local workflow and PR checklist |
 | [`docs/liquid-gl-verification.md`](docs/liquid-gl-verification.md) | LiquidGL manual verification |
 | [`docs/tavus-cvi.md`](docs/tavus-cvi.md) | Tavus CVI + Daily integration |
+| [`docs/architecture/`](docs/architecture/) | C4 context / containers / dynamic / deployment |

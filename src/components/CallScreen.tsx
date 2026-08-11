@@ -39,8 +39,11 @@ import { CALL_MOTION, callScreenCssVars } from "../lib/callUi";
 import { hapticTap } from "../lib/haptics";
 
 interface CallScreenProps {
+  /** Fixed agent-derived display identity. */
   config: CallConfig;
+  /** When true, begins bootstrapping on mount (Garry landing). */
   autoStart?: boolean;
+  /** Fired after teardown; App replaces the page with the hire-me URL. */
   onExit: () => void;
 }
 
@@ -68,6 +71,14 @@ function wantsDebugGlass(): boolean {
   return new URLSearchParams(window.location.search).has("debugGlass");
 }
 
+/**
+ * Live Garry FaceTime UI: owns call phases via {@link callReducer}, LiquidGL,
+ * self-view drag/morph, and Tavus/Daily lifecycle through {@link useTavusCall}.
+ *
+ * @param props.config - Display identity from fixed agent data.
+ * @param props.autoStart - Auto-dispatch `START_CALL` on mount when true.
+ * @param props.onExit - Post-end navigation (hire-me redirect).
+ */
 export function CallScreen({
   config,
   autoStart = false,

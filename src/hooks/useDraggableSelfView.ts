@@ -11,6 +11,10 @@ import {
   type SafeInsets,
 } from "../lib/callUi";
 
+/**
+ * Pixel position for the self-view tile. Recomputed from a saved corner name —
+ * never persisted as raw coordinates.
+ */
 export interface CornerPosition {
   top: number;
   left: number;
@@ -151,6 +155,14 @@ function defaultPosition(
   return anchors(width, height, bounds, compact, safeInsets)["top-right"];
 }
 
+/**
+ * Draggable self-view that snaps to corners. Persists a corner name in
+ * `sessionStorage` (`mini-pho-self-view`), not pixel coordinates.
+ *
+ * @param containerRef - Call screen root used for layout bounds.
+ * @param options - Active/draggable/compact flags and safe-area insets.
+ * @returns Node ref, pixel style, drag handlers, and dragging flag.
+ */
 export function useDraggableSelfView(
   containerRef: RefObject<HTMLElement | null>,
   options: DragOptions,

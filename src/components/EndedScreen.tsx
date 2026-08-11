@@ -4,6 +4,9 @@ interface EndedScreenProps {
   onClose: () => void;
 }
 
+/**
+ * Post-call summary. Often skipped visually when exit redirects immediately.
+ */
 export function EndedScreen({
   duration,
   onCallAgain,

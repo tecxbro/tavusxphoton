@@ -2,6 +2,15 @@
 
 Current runtime: FaceTime UI + Tavus CVI over Daily.
 
+## C4 diagrams
+
+| Level | File |
+|-------|------|
+| Context | [`docs/architecture/c4-context.md`](docs/architecture/c4-context.md) |
+| Containers | [`docs/architecture/c4-containers.md`](docs/architecture/c4-containers.md) |
+| Dynamic (live call) | [`docs/architecture/c4-dynamic-live-call.md`](docs/architecture/c4-dynamic-live-call.md) |
+| Deployment | [`docs/architecture/c4-deployment.md`](docs/architecture/c4-deployment.md) |
+
 ## Entry points
 
 | Entry | Location | Role |
@@ -106,7 +115,8 @@ No browser unload End / beacon.
 | Tavus Vite middleware | `scripts/tavusApiPlugin.ts` |
 | Tavus Vercel adapter | `api/tavus.ts` |
 | Call chrome | `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton`, `SymbolIcon` |
-| Home directory (dormant) | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon`, `BusyCallScreen`, `src/data/agents.ts`, `src/data/homeLinks.ts` |
+| Home directory (dormant) | `HomeScreen`, `HomeMenu`, `AgentGrid`, `AgentCard`, `HireMeButton`, `HomeSymbolIcon` |
+| Agent directory data | `src/data/agents.ts`, `src/data/homeLinks.ts` |
 | LiquidGL | `liquidGlass.ts`, `useLiquidGlass` (call), `useHomeLiquidGlass` (home) |
 | Styling | `src/styles/` |
 
@@ -130,7 +140,7 @@ During active phases the local `<video>` stays in the LiquidGL snapshot tree eve
 
 ### Call audio (FaceTime SFX)
 
-Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phases to public WAVs under `/audio/facetime/`. Wired from both `CallScreen` and `PhoCallScreen`: `ringing` loops until remote join (`connecting` plays connected once), `ended` plays once per call, mic mute/unmute one-shots follow `audioEnabled`.
+Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phases to public WAVs under `/audio/facetime/`. Wired from `CallScreen` and `BusyCallScreen`: `ringing` loops until remote join (`connecting` plays connected once), `ended` plays once per call, mic mute/unmute one-shots follow `audioEnabled`.
 
 ### LiquidGL pin and patch
 

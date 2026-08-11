@@ -18,6 +18,9 @@ export type CallAudioPhase =
 /**
  * Maps call-phase + mic state to FaceTime SFX. Side effects run in effects
  * only — never from render. One controller instance lives for the screen.
+ *
+ * @param phase - Call or busy-mapped audio phase.
+ * @param audioEnabled - Mic enabled flag for mute/unmute one-shots.
  */
 export function useCallAudio(
   phase: CallAudioPhase,

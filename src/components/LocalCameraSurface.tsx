@@ -7,6 +7,7 @@ import {
 } from "react";
 import { getInitials } from "../lib/callState";
 
+/** Self-view layout mode driven by call phase and chrome visibility. */
 export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
 
 interface LocalCameraSurfaceProps {
@@ -26,6 +27,10 @@ interface LocalCameraSurfaceProps {
   draggable?: boolean;
 }
 
+/**
+ * Local camera `<video>` + placeholder. Stays mounted during active phases
+ * (even when camera-off) so LiquidGL snapshot structure does not remount.
+ */
 export function LocalCameraSurface({
   stream,
   videoEnabled,

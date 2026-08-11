@@ -1,11 +1,14 @@
-// Browser client that talks to your server-side /api/tavus route.
-// The Tavus API key stays on the server — see tavus-api-vite-ssr.ts.
-//
-// Create params are accepted for API symmetry with the generated helper, but
-// the server ignores them and applies its fixed configuration.
+/**
+ * Browser client for the server-side `/api/tavus` route.
+ * The Tavus API key stays on the server — see `tavus-api-vite-ssr.ts`.
+ *
+ * Create params are accepted for API symmetry with the generated helper, but
+ * the server ignores them and applies its fixed configuration.
+ */
 
 const ENDPOINT = "/api/tavus";
 
+/** Browser create body — ignored server-side; kept for helper API symmetry. */
 export type CreateConversationParams = {
   pal_id?: string;
   face_id?: string;
@@ -34,6 +37,7 @@ export type CreateConversationParams = {
   [key: string]: unknown;
 };
 
+/** Successful create payload from Tavus via `/api/tavus`. */
 export type CreateConversationResponse = {
   conversation_id: string;
   conversation_url: string;
@@ -41,6 +45,13 @@ export type CreateConversationResponse = {
   [key: string]: unknown;
 };
 
+/**
+ * Create a Tavus CVI conversation through the server proxy.
+ *
+ * @param params - Optional create fields (ignored by the server).
+ * @returns Conversation id, Daily URL, and optional meeting token.
+ * @throws {Error} When the proxy responds non-OK.
+ */
 export async function createTavusConversation(
   params: CreateConversationParams = {},
 ): Promise<CreateConversationResponse> {
@@ -55,6 +66,13 @@ export async function createTavusConversation(
   return res.json();
 }
 
+/**
+ * End a Tavus conversation through the server proxy.
+ * Do not call from `beforeunload` / `pagehide` / `sendBeacon`.
+ *
+ * @param conversationId - Server-issued conversation id.
+ * @throws {Error} When the proxy responds non-OK.
+ */
 export async function endTavusConversation(
   conversationId: string,
 ): Promise<void> {

@@ -166,6 +166,13 @@ async function acquireReplacementVideoTrack(
   return { status: "track", track };
 }
 
+/**
+ * Browser local camera/mic ownership for call screens.
+ * Adopts gesture-warmed media from `liveCallBootstrap` when present so SPA
+ * navigation does not prompt a second `getUserMedia`.
+ *
+ * @returns Stream, toggles, flip transaction, and fatal vs recoverable errors.
+ */
 export function useMediaDevices(): MediaDevicesState {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [videoEnabled, setVideoEnabled] = useState(true);

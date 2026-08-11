@@ -101,6 +101,13 @@ function enqueueDailyTeardown(call: DailyCall): Promise<void> {
   return dailyTeardownChain;
 }
 
+/**
+ * Orchestrates Tavus create/join/end and Daily media for the live Garry call.
+ * Local tracks stay owned by {@link useMediaDevices}; this hook attaches them
+ * to Daily and maps remote participant / track events into call state inputs.
+ *
+ * @returns Media streams, toggles, flip helpers, and fatal vs recoverable errors.
+ */
 export function useTavusCall(): UseTavusCallResult {
   const {
     stream: localStream,

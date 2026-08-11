@@ -1,3 +1,7 @@
+/**
+ * Live call UI phases owned by {@link callReducer}.
+ * Advance only via dispatched {@link CallAction}s — never set ad hoc.
+ */
 export type CallPhase =
   | "idle"
   | "bootstrapping"
@@ -9,8 +13,10 @@ export type CallPhase =
   | "permission-error"
   | "connection-error";
 
+/** Local camera facing mode from `getUserMedia` constraints. */
 export type CameraFacing = "user" | "environment";
 
+/** Transient chrome status chip; `null` clears the message. */
 export type StatusMessage =
   | "microphone-muted"
   | "microphone-unmuted"
@@ -21,6 +27,10 @@ export type StatusMessage =
   | "connection-restored"
   | null;
 
+/**
+ * Display identity for a call session.
+ * Prefer `callConfigFromAgent` — never trust browser PAL / room params.
+ */
 export interface CallConfig {
   sessionId: string;
   participantName: string;
@@ -28,6 +38,7 @@ export interface CallConfig {
   selfAvatar?: string;
 }
 
+/** Fallback identity when parsing fails or no agent is resolved. */
 export const defaultCall: CallConfig = {
   sessionId: "demo",
   participantName: "Garry Tan",
@@ -36,6 +47,7 @@ export const defaultCall: CallConfig = {
 
 export { CALL_MOTION, EASE_OUT_EXPO, SELF_VIEW_LAYOUT } from "./callUi";
 
+/** Auto-hide delay for live call chrome when idle. */
 export const AUTO_HIDE_MS = 2000;
 export const MORE_OPEN_MS = 420;
 export const MORE_CLOSE_MS = 210;
@@ -66,6 +78,13 @@ function safeSameOriginAsset(
   }
 }
 
+/**
+ * Parse display-only call identity from the route search string.
+ *
+ * @param sessionId - Path session id (sanitized to `[A-Za-z0-9_-]{1,64}`).
+ * @param search - `location.search` (may include leading `?`).
+ * @returns Sanitized {@link CallConfig}; same-origin assets only for avatars.
+ */
 export function parseCallSearchParams(
   sessionId: string,
   search: string,
@@ -86,6 +105,12 @@ export function parseCallSearchParams(
   };
 }
 
+/**
+ * Two-letter (or single-letter) initials for avatar placeholders.
+ *
+ * @param name - Display name; empty / whitespace yields `"?"`.
+ * @returns Uppercase initials string.
+ */
 export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -93,6 +118,12 @@ export function getInitials(name: string): string {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
+/**
+ * Format elapsed call time as `MM:SS`.
+ *
+ * @param totalSeconds - Elapsed seconds (floored; negatives clamp to 0).
+ * @returns Zero-padded duration string.
+ */
 export function formatDuration(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(safe / 60);
@@ -100,7 +131,14 @@ export function formatDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-/** Allowed phase edges. CallScreen must dispatch through callReducer — do not set phases ad hoc. */
+/**
+ * Allowed phase edges. CallScreen must dispatch through {@link callReducer} —
+ * do not set phases ad hoc.
+ *
+ * @param from - Current phase.
+ * @param to - Candidate next phase.
+ * @returns Whether the edge is legal.
+ */
 export function canTransition(from: CallPhase, to: CallPhase): boolean {
   switch (from) {
     case "idle":
@@ -143,6 +181,7 @@ export function canTransition(from: CallPhase, to: CallPhase): boolean {
   }
 }
 
+/** Discriminated actions consumed by {@link callReducer}. */
 export type CallAction =
   | { type: "START_CALL" }
   | { type: "PERMISSIONS_GRANTED" }
@@ -155,7 +194,13 @@ export type CallAction =
   | { type: "RESTART" }
   | { type: "CLOSE" };
 
-/** Pure phase machine. Illegal transitions are no-ops so async races cannot skip ahead. */
+/**
+ * Pure phase machine. Illegal transitions are no-ops so async races cannot skip ahead.
+ *
+ * @param phase - Current call phase.
+ * @param action - Transition intent.
+ * @returns Next phase (unchanged when the edge is illegal).
+ */
 export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
   switch (action.type) {
     case "START_CALL":
@@ -189,6 +234,12 @@ export function callReducer(phase: CallPhase, action: CallAction): CallPhase {
   }
 }
 
+/**
+ * Phases where local media and call chrome remain mounted.
+ *
+ * @param phase - Current call phase.
+ * @returns True for ringing through live.
+ */
 export function isActiveCallPhase(phase: CallPhase): boolean {
   return (
     phase === "ringing" ||
@@ -198,6 +249,12 @@ export function isActiveCallPhase(phase: CallPhase): boolean {
   );
 }
 
+/**
+ * Phases that show the live FaceTime chrome (contact pill, control rail).
+ *
+ * @param phase - Current call phase.
+ * @returns True for joining and live.
+ */
 export function isLiveChromePhase(phase: CallPhase): boolean {
   return phase === "joining" || phase === "live";
 }

@@ -4,6 +4,10 @@ import { CallScreen } from "./components/CallScreen";
 import { callConfigFromAgent, getAgentById } from "./data/agents";
 import { HIRE_ME_URL } from "./data/homeLinks";
 
+/**
+ * Resolves `/call/:agentId` to live Tavus (`CallScreen`) or busy simulation.
+ * Unknown ids redirect home; exit replaces the page with {@link HIRE_ME_URL}.
+ */
 function AgentCallRoute() {
   const { agentId } = useParams();
   const agent = getAgentById(agentId);
@@ -25,6 +29,9 @@ function AgentCallRoute() {
   return <BusyCallScreen agent={agent} onExit={onExit} />;
 }
 
+/**
+ * App routes: `/` → Garry live call; `/call/:agentId` live or busy; `*` → `/`.
+ */
 export default function App() {
   return (
     <Routes>

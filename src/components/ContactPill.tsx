@@ -10,6 +10,9 @@ interface ContactPillProps {
   onMetricsInvalidate?: () => void;
 }
 
+/**
+ * Top contact chip (LiquidGL target). Shows "Connecting…" until live chrome.
+ */
 export function ContactPill({
   name,
   avatar,

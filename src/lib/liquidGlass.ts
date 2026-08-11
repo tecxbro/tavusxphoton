@@ -87,6 +87,11 @@ function prefersReducedTransparency(): boolean {
   return window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
 }
 
+/**
+ * Probe whether WebGL can create a drawing buffer (LiquidGL prerequisite).
+ *
+ * @returns False when WebGL is unavailable or context creation fails.
+ */
 export function hasWebGLSupport(): boolean {
   try {
     const canvas = document.createElement("canvas");
@@ -235,6 +240,12 @@ function buildOptions(
   };
 }
 
+/**
+ * Create the singleton LiquidGL controller for call chrome.
+ * Exactly one shared WebGL canvas is adopted into `.liquid-canvas-layer`.
+ *
+ * @returns Controller with refresh / recapture / rebuild / destroy.
+ */
 export function createLiquidGlassController(): LiquidGlassController {
   let mode: LiquidGlassMode = "initializing";
   let instances: LiquidGLInstance[] = [];

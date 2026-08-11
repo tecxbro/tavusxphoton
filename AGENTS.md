@@ -59,6 +59,7 @@
 | Need | File |
 |------|------|
 | Runtime architecture | `ARCHITECTURE.md` |
+| C4 diagrams | `docs/architecture/` |
 | Setup / PR checklist | `CONTRIBUTING.md` |
 | LiquidGL verification | `docs/liquid-gl-verification.md` |
 | Tavus CVI + Daily | `docs/tavus-cvi.md` |

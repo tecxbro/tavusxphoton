@@ -26,6 +26,9 @@ function isValidRect(rect: DOMRect): boolean {
  * FLIP-morphs a primary element (and optional followers) when `activeKey`
  * changes. CallScreen owns the self-view morph: local camera is primary,
  * Flip overlay is a follower — one shared transform / timeline.
+ *
+ * @param primaryRef - Element whose geometry drives the morph.
+ * @param options - Key, duration, followers, and lifecycle callbacks.
  */
 export function useLayoutMorph(
   primaryRef: RefObject<HTMLElement | null>,

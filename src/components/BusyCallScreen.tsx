@@ -22,6 +22,7 @@ import { EffectsButton } from "./EffectsButton";
 import { LocalCameraSurface } from "./LocalCameraSurface";
 import { SymbolIcon } from "./SymbolIcon";
 
+/** Busy-simulation phases — local media only; never Tavus/Daily. */
 export type BusyPhase =
   | "bootstrapping"
   | "ringing"
@@ -30,6 +31,7 @@ export type BusyPhase =
 
 interface BusyCallScreenProps {
   agent: AgentProfile;
+  /** Fired when the user leaves the busy / cancelled flow. */
   onExit: () => void;
 }
 
@@ -53,6 +55,9 @@ function toGlassPhase(phase: BusyPhase): CallPhase {
 /**
  * Simulated FaceTime call for busy agents. Local media + chrome only —
  * never imports or invokes Tavus / Daily creation APIs.
+ *
+ * @param props.agent - Fixed busy agent profile (ring duration, avatars).
+ * @param props.onExit - Leave handler (hire-me redirect from App).
  */
 export function BusyCallScreen({ agent, onExit }: BusyCallScreenProps) {
   const navigate = useNavigate();

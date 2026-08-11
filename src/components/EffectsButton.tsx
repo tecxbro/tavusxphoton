@@ -1,5 +1,6 @@
 import { SymbolIcon } from "./SymbolIcon";
 
+/** Decorative aperture control — not interactive; LiquidGL target only. */
 export function EffectsButton() {
   return (
     <div

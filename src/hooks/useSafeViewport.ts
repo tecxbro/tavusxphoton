@@ -80,6 +80,14 @@ export function shouldApplyIphoneTopFallback(
   return isReferencePhoneViewport(viewport);
 }
 
+/**
+ * Apply Spectrum/iPhone top inset fallback when native top is 0 on a reference
+ * phone viewport; otherwise return native insets unchanged.
+ *
+ * @param native - Host-reported safe-area insets.
+ * @param viewport - Current CSS viewport size.
+ * @returns Effective insets for call layout CSS vars.
+ */
 export function effectiveSafeInsets(
   native: SafeInsets,
   viewport: ViewportSize,
@@ -131,6 +139,12 @@ const SSR_VIEWPORT: SafeViewport = {
   safeInsets: { ...ZERO_INSETS, top: IPHONE_TOP_FALLBACK_PX },
 };
 
+/**
+ * Tracks visual viewport size and safe-area insets for call layout.
+ * Writes `--safe-*` CSS vars on the document element.
+ *
+ * @returns Current viewport metrics including native and effective insets.
+ */
 export function useSafeViewport() {
   const [viewport, setViewport] = useState<SafeViewport>(() =>
     typeof window === "undefined" ? SSR_VIEWPORT : readViewport(),
