@@ -135,6 +135,7 @@ export function useTavusCall(): UseTavusCallResult {
   const callRef = useRef<DailyCall | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const startInFlightRef = useRef<Promise<void> | null>(null);
+  const endInFlightRef = useRef<Promise<void> | null>(null);
   const endingRef = useRef(false);
   const generationRef = useRef(0);
   const palJoinedRef = useRef(false);
@@ -260,31 +261,21 @@ export function useTavusCall(): UseTavusCallResult {
     ],
   );
 
-  const cleanupCallObject = useCallback(async () => {
-    const call = callRef.current;
-    callRef.current = null;
-    if (!call) return;
-    removeListeners(call);
-    await enqueueDailyTeardown(call);
-  }, [removeListeners]);
-
-  const endConversationIfNeeded = useCallback(async () => {
-    const conversationId = conversationIdRef.current;
-    conversationIdRef.current = null;
-    if (!conversationId) return;
-    try {
-      await endTavusConversation(conversationId);
-    } catch {
-      // Best-effort end; unexpected disconnect uses Tavus timeout.
+  const cleanupCallObject = useCallback(async (call?: DailyCall | null) => {
+    const target = call ?? callRef.current;
+    if (callRef.current === target) {
+      callRef.current = null;
     }
-  }, []);
+    if (!target) return;
+    removeListeners(target);
+    await enqueueDailyTeardown(target);
+  }, [removeListeners]);
 
   const startCall = useCallback(async () => {
     if (startInFlightRef.current) {
       return startInFlightRef.current;
     }
 
-    endingRef.current = false;
     setStarting(true);
     setError(null);
     setPalJoined(false);
@@ -297,11 +288,14 @@ export function useTavusCall(): UseTavusCallResult {
       let createdConversationId: string | null = null;
 
       try {
-        // Wait for any prior Daily teardown (Strict Mode remount race).
+        // Wait for any in-flight end + Daily leave/destroy before creating
+        // another call object — Retry must not race teardown against callRef.
+        await endInFlightRef.current?.catch(() => undefined);
         await dailyTeardownChain.catch(() => undefined);
         if (generation !== generationRef.current) {
           return;
         }
+        endingRef.current = false;
 
         const call = DailyIframe.createCallObject();
         if (generation !== generationRef.current) {
@@ -342,7 +336,7 @@ export function useTavusCall(): UseTavusCallResult {
             }
           }
           conversationIdRef.current = null;
-          await cleanupCallObject();
+          await cleanupCallObject(call);
           setError(mediaError || "Permission denied");
           return;
         }
@@ -431,21 +425,57 @@ export function useTavusCall(): UseTavusCallResult {
     syncRemoteFromParticipant,
   ]);
 
-  const endCall = useCallback(async () => {
-    if (endingRef.current) return;
+  const endCall = useCallback((): Promise<void> => {
+    if (endInFlightRef.current) {
+      return endInFlightRef.current;
+    }
+
     endingRef.current = true;
     generationRef.current += 1;
     startInFlightRef.current = null;
     setStarting(false);
 
-    await endConversationIfNeeded();
-    await cleanupCallObject();
-    stopAll();
-    clearRemoteStreams();
-    setPalJoined(false);
-    palJoinedRef.current = false;
-    endingRef.current = false;
-  }, [cleanupCallObject, clearRemoteStreams, endConversationIfNeeded, stopAll]);
+    // Capture the exact session being torn down so a concurrent Retry cannot
+    // redirect cleanup onto a newly created Daily call / conversation.
+    const callToEnd = callRef.current;
+    callRef.current = null;
+    const conversationToEnd = conversationIdRef.current;
+    conversationIdRef.current = null;
+
+    // Publish the in-flight promise before any work so concurrent startCall
+    // awaits it even when teardown has no async steps.
+    let settle!: () => void;
+    const run = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    endInFlightRef.current = run;
+
+    void (async () => {
+      try {
+        if (conversationToEnd) {
+          try {
+            await endTavusConversation(conversationToEnd);
+          } catch {
+            // Best-effort end; unexpected disconnect uses Tavus timeout.
+          }
+        }
+        if (callToEnd) {
+          removeListeners(callToEnd);
+          await enqueueDailyTeardown(callToEnd);
+        }
+        stopAll();
+        clearRemoteStreams();
+        setPalJoined(false);
+        palJoinedRef.current = false;
+      } finally {
+        endingRef.current = false;
+        endInFlightRef.current = null;
+        settle();
+      }
+    })();
+
+    return run;
+  }, [clearRemoteStreams, removeListeners, stopAll]);
 
   const resetCall = useCallback(async () => {
     await endCall();

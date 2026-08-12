@@ -130,6 +130,8 @@ No browser unload End / beacon.
 
 `attemptRef` in `useCallLifecycle` and `requestGeneration` in `useMediaDevices` invalidate overlapping `beginCall` / `getUserMedia` / flip work. Late streams are stopped and discarded. Camera flip failures use `cameraActionError` (recoverable) and never the fatal media / connection error path.
 
+`useTavusCall.endCall` is single-flight (`endInFlightRef`): it captures the Daily call + conversation being torn down, and `startCall` awaits that promise (and the Daily teardown chain) before creating another call object — so Retry cannot destroy a newly created session.
+
 ### Local camera stays mounted
 
 During active phases the local `<video>` stays in the LiquidGL snapshot tree even when the camera is off. The track is disabled and the placeholder is shown (`data-liquid-ignore` on the video) so glass texture updates do not remount the element.
@@ -170,6 +172,7 @@ Also unused at runtime: `src/lib/photonAppCard.ts` (helper only). `More` in the 
 | Media / auto-hide / timer | `src/tests/unit/hooks.test.ts` |
 | Call audio (FaceTime SFX) | `src/tests/unit/callAudio.test.ts` |
 | Tavus + Daily hook | `src/tests/unit/useTavusCall.test.tsx` |
+| Call lifecycle | `src/tests/unit/useCallLifecycle.test.tsx` |
 | LiquidGL controller / dynamic video / morph | `src/tests/unit/liquidGlass.test.ts`, `useLiquidGlass.test.tsx`, `liquidGlDynamicVideos.test.ts`, `useLayoutMorph.test.ts` |
 | Call chrome / symbols | `src/tests/unit/callControls.test.tsx`, `symbolIcon.test.tsx` |
 | Tavus API | `api/tests/tavusApi.test.ts` |

@@ -225,4 +225,30 @@ describe("useLiquidGlass", () => {
       document.querySelectorAll("canvas[data-liquid-ignore]").length,
     ).toBe(0);
   });
+
+  it("defers LiquidGL mount while hidden and creates on visibilitychange", () => {
+    mockActiveRenderer();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+
+    const { result } = renderHook((input: HookInput) => useLiquidGlass(input), {
+      initialProps: baseInput({ backgroundReady: true }),
+    });
+
+    expect(liquidGLMock).not.toHaveBeenCalled();
+    expect(result.current.mode).toBe("initializing");
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    expect(result.current.mode).toBe("active");
+  });
 });

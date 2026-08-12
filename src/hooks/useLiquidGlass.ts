@@ -31,6 +31,9 @@ export interface UseLiquidGlassResult {
  * Mounts the shared LiquidGL controller for call chrome when enabled.
  * Tears down on disable / unmount; never creates a second renderer canvas.
  *
+ * When eligible while the document is hidden, defers controller creation until
+ * `visibilitychange` → visible (listener is always registered).
+ *
  * @param input - Enable flags, phase, chrome visibility, and camera layout.
  * @returns Mode, error, and refresh / recapture / rebuild helpers.
  */
@@ -58,56 +61,73 @@ export function useLiquidGlass({
       return;
     }
 
-    if (document.visibilityState === "hidden") {
-      return;
-    }
-
     const generation = ++generationRef.current;
-    const controller = createLiquidGlassController();
-    controllerRef.current = controller;
-    setMode(controller.mode);
-    setError(window.__miniPhoLiquidGlassDebug__?.lastError ?? null);
+    let unsubscribeMode: (() => void) | null = null;
+    const removeWindowListeners: Array<() => void> = [];
 
-    const syncMode = () => {
+    const syncMode = (controller: LiquidGlassController) => {
       if (generation !== generationRef.current) return;
       setMode(controller.mode);
       setError(window.__miniPhoLiquidGlassDebug__?.lastError ?? null);
     };
 
-    const unsubscribeMode = controller.subscribeMode(() => {
-      syncMode();
-    });
+    const attachControllerListeners = (controller: LiquidGlassController) => {
+      unsubscribeMode = controller.subscribeMode(() => {
+        syncMode(controller);
+      });
 
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
+      const onOrientation = () => {
         controller.refresh();
         controller.recapture();
-        syncMode();
-      }
-    };
-    const onOrientation = () => {
-      controller.refresh();
-      controller.recapture();
-    };
-    const onResize = () => controller.refresh();
+      };
+      const onResize = () => controller.refresh();
 
+      window.addEventListener("orientationchange", onOrientation);
+      window.visualViewport?.addEventListener("resize", onResize);
+      window.addEventListener("resize", onResize);
+      removeWindowListeners.push(() => {
+        window.removeEventListener("orientationchange", onOrientation);
+        window.visualViewport?.removeEventListener("resize", onResize);
+        window.removeEventListener("resize", onResize);
+      });
+    };
+
+    const mountController = () => {
+      if (generation !== generationRef.current) return;
+      if (controllerRef.current) return;
+      if (document.visibilityState === "hidden") return;
+
+      const controller = createLiquidGlassController();
+      controllerRef.current = controller;
+      setMode(controller.mode);
+      setError(window.__miniPhoLiquidGlassDebug__?.lastError ?? null);
+      attachControllerListeners(controller);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!controllerRef.current) {
+        mountController();
+        return;
+      }
+      controllerRef.current.refresh();
+      controllerRef.current.recapture();
+      syncMode(controllerRef.current);
+    };
+
+    // Always listen while eligible so a hidden start can mount on reveal.
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("orientationchange", onOrientation);
-    window.visualViewport?.addEventListener("resize", onResize);
-    window.addEventListener("resize", onResize);
+    mountController();
 
     return () => {
-      unsubscribeMode();
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("orientationchange", onOrientation);
-      window.visualViewport?.removeEventListener("resize", onResize);
-      window.removeEventListener("resize", onResize);
-      if (controllerRef.current === controller) {
-        controller.destroy();
-        controllerRef.current = null;
-      } else {
-        controller.destroy();
+      unsubscribeMode?.();
+      for (const remove of removeWindowListeners) {
+        remove();
       }
+      const controller = controllerRef.current;
+      controllerRef.current = null;
+      controller?.destroy();
     };
   }, [enabled, backgroundReady]);
 

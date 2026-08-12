@@ -156,6 +156,94 @@ describe("useTavusCall", () => {
     expect(call.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it("awaits in-flight end before creating a new Daily call on Retry", async () => {
+    const first = createMockCall();
+    const second = createMockCall();
+    createCallObject
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+
+    let resolveEndConversation: (() => void) | undefined;
+    endTavusConversation.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEndConversation = resolve;
+        }),
+    );
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let endPromise: Promise<void> | undefined;
+    await act(async () => {
+      endPromise = result.current.endCall();
+    });
+
+    // Retry while Tavus End Conversation is still in flight.
+    let startPromise: Promise<void> | undefined;
+    await act(async () => {
+      startPromise = result.current.startCall();
+    });
+
+    expect(createCallObject).toHaveBeenCalledTimes(1);
+    expect(second.join).not.toHaveBeenCalled();
+
+    resolveEndConversation?.();
+    await act(async () => {
+      await endPromise;
+      await startPromise;
+    });
+
+    expect(createCallObject).toHaveBeenCalledTimes(2);
+    expect(first.leave).toHaveBeenCalledTimes(1);
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(second.leave).not.toHaveBeenCalled();
+    expect(second.destroy).not.toHaveBeenCalled();
+    expect(second.join).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the same promise for overlapping endCall", async () => {
+    const call = createMockCall();
+    createCallObject.mockReturnValue(call);
+
+    let resolveEndConversation: (() => void) | undefined;
+    endTavusConversation.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEndConversation = resolve;
+        }),
+    );
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let first: Promise<void> | undefined;
+    let second: Promise<void> | undefined;
+    await act(async () => {
+      first = result.current.endCall();
+      second = result.current.endCall();
+    });
+
+    expect(first).toBe(second);
+
+    resolveEndConversation?.();
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
+    expect(endTavusConversation).toHaveBeenCalledTimes(1);
+    expect(call.leave).toHaveBeenCalledTimes(1);
+    expect(call.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("creates a fresh conversation after reset", async () => {
     const first = createMockCall();
     const second = createMockCall();
