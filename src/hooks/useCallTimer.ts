@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration } from "../lib/callState";
 
+/**
+ * RAF-based call elapsed timer. Starts on first `running === true` and keeps
+ * accumulating until {@link reset}.
+ *
+ * @param running - When true, advances elapsed time each frame.
+ * @returns Elapsed ms/seconds, formatted `MM:SS`, plus reset/stop.
+ */
 export function useCallTimer(running: boolean) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const startedAt = useRef<number | null>(null);

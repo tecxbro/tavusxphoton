@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AUTO_HIDE_MS } from "../lib/callState";
 
+/**
+ * Auto-hides live call chrome after idle. Pausing keeps chrome visible
+ * (e.g. while dragging the self-view).
+ *
+ * @param active - When false, chrome stays visible and timers clear.
+ * @param keepVisible - Force-visible override (error / sheets).
+ * @param delayMs - Hide delay; defaults to {@link AUTO_HIDE_MS}.
+ * @returns Visibility flag plus show/hide/pause/resume helpers.
+ */
 export function useAutoHideControls(
   active: boolean,
   keepVisible: boolean,

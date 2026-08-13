@@ -21,13 +21,14 @@ export interface SymbolMetric {
  * distortion or letterboxing.
  */
 export const SYMBOL_METRICS: Record<SymbolName, SymbolMetric> = {
-  "camera-on": { width: 30, height: 20 },
-  "camera-off": { width: 24.5, height: 20 },
-  "microphone-on": { width: 15, height: 22 },
-  "microphone-off": { width: 18, height: 22 },
-  more: { width: 32, height: 6.5 },
-  "end-call": { width: 26, height: 26 },
-  "flip-camera": { width: 24, height: 20 },
-  effects: { width: 19, height: 26 },
+  "camera-on": { width: 24, height: 16 },
+  "camera-off": { width: 19.5, height: 16 },
+  "microphone-on": { width: 13.5, height: 20 },
+  "microphone-off": { width: 16.5, height: 20 },
+  more: { width: 21, height: 4.25 },
+  "end-call": { width: 16.5, height: 16.5 },
+  "flip-camera": { width: 21, height: 17.25 },
+  // viewBox 113.35×150 → width = 18 * (113.35 / 150)
+  effects: { width: 13.6, height: 18 },
   "contact-chevron": { width: 5, height: 17 },
 };

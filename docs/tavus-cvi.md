@@ -6,9 +6,11 @@ The browser never receives `TAVUS_API_KEY`. Media transport is Daily
 
 ## Final call flow
 
+C4 dynamic diagram: [`docs/architecture/c4-dynamic-live-call.md`](architecture/c4-dynamic-live-call.md).
+
 ```text
-Talk to Gary
-→ Call
+/incoming/garry Accept → /call/demo (auto-start)
+or / → /call/demo (auto-start)
 → camera / microphone permission
 → create Tavus conversation (server)
 → ringing UI (local camera fullscreen)
@@ -17,7 +19,7 @@ Talk to Gary
 → first rendered remote video frame
 → FaceTime pickup morph
 → live conversation
-→ End → Tavus End Conversation + Daily leave/destroy → ended screen
+→ End → Tavus End Conversation + Daily leave/destroy → hire-me redirect
 ```
 
 Unexpected tab / webview close does **not** call End Conversation from the
@@ -91,6 +93,18 @@ End immediately:
 
 Meeting tokens stay in memory only — never in `localStorage`, URLs, or query params.
 
+## Camera flip
+
+Flip is a recoverable media transaction owned by `useMediaDevices`.
+`useTavusCall.replaceVideoTrack` passes the exact replacement track to Daily
+via `setInputDevicesAsync({ videoSource: track })` and does not stop tracks or
+end the conversation on failure.
+
+Failures (no second camera, same camera, Daily rejection, preview commit) set
+`cameraActionError` only. They must not enter `connection-error`, tear down the
+local stream, or permanently disable Flip (`isFlippingCamera` clears in
+`finally`).
+
 ## Timeouts
 
 | Property | Value | Meaning |
@@ -115,10 +129,9 @@ Ended conversations are never reused.
 
 1. Set real `TAVUS_API_KEY` + `TAVUS_PAL_ID` in `.env.local`.
 2. Start with `TAVUS_TEST_MODE=false` (start-the-server does this).
-3. `npm run dev` → open `/call/demo`.
-4. Confirm launcher shows **Talk to Gary** and one **Call** button.
-5. Press Call → allow camera/mic → ringing UI while waiting.
-6. When Gary’s video appears, pickup morph runs (no fixed 2–3s timer).
-7. Controls, flip, drag, LiquidGL, timer, and End still work.
-8. End returns to the ended screen; Call Again starts a fresh session.
-9. Closing the tab does not fire a custom End request (Network panel).
+3. `npm run dev` → open `/` (redirects to `/call/demo`) or open `/call/demo` directly.
+4. Allow camera/mic → ringing UI while waiting.
+5. When Gary’s video appears, pickup morph runs (no fixed 2–3s timer).
+6. Controls, flip, drag, LiquidGL, timer, and End still work.
+7. End redirects to `https://photon.codes`.
+8. Closing the tab does not fire a custom End request (Network panel).

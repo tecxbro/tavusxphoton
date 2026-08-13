@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { hapticTap } from "../lib/haptics";
 
+/** Control rail button role — End Call skips LiquidGL targeting. */
 export type ControlVariant = "camera" | "mic" | "more" | "end";
 
 interface CallControlButtonProps {
@@ -22,6 +23,9 @@ interface CallControlButtonProps {
  * lifetime. Enabled media states paint a solid white surface above the glass;
  * disabling the media fades that surface out so the glass shows through.
  * The End Call button is never a LiquidGL target.
+ *
+ * @param props.variant - Visual / glass role.
+ * @param props.onClick - Tap handler (also fires haptic).
  */
 export function CallControlButton({
   variant,

@@ -22,7 +22,12 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:5173/call/demo](http://localhost:5173/call/demo).
+Open [http://localhost:5173/](http://localhost:5173/) — you land on the Garry
+call (mic/camera prompt, then connect). Ending the live call leaves for
+[photon.codes](https://photon.codes).
+
+The iMessage Live Mini App card is `/incoming/garry` (Decline / Accept). Accept
+opens `/call/demo` in the expanded Mini App.
 
 Use one Vite server on port `5173` — do not start multiple copies.
 
@@ -33,8 +38,11 @@ this). When unset, Vite defaults to `true` so creates skip the PAL join.
 
 | Path | Purpose |
 |------|---------|
-| `/` | Redirects to `/call/demo` |
-| `/call/:sessionId` | Call launcher + FaceTime UI (`name`, `avatar`, `selfAvatar` query params) |
+| `/` | Redirects to `/call/demo` (direct Garry landing) |
+| `/incoming/garry` | Live Mini App incoming card (Decline stays here; Accept loads `/call/demo`) |
+| `/call/demo` | Alias for Garry’s live Tavus call (auto-start). Hang-up replaces the page with `https://photon.codes` |
+| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation. Busy exit still uses `https://pleasegivemeaninternship.com` |
+| `*` | Redirects to `/` |
 
 ## Environment variables
 
@@ -61,16 +69,18 @@ Full CVI notes: [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 | `npm run test:watch` | Vitest watch |
 | `npm run check` | lint + test + build |
 | `npm run postinstall` | Applies `patch-package` (LiquidGL patch) |
+| Vercel install | `npm ci` via `vercel.json` — required so the LiquidGL patch applies to a clean `liquid-gl@2.0.1` |
 
 ## Project structure
 
 ```text
 src/
   main.tsx, App.tsx          # Bootstrap and routes
-  components/                # Call UI + launcher
+  components/                # Call UI (live + busy)
+  data/                      # Fixed agent directory + home links
   hooks/                     # Media, Daily/Tavus, drag, LiquidGL
   lib/                       # Call state, LiquidGL, tavus helpers
-  styles/                    # Tokens and call/launcher CSS
+  styles/                    # Tokens and home/call CSS
 api/tavus.ts                 # Vercel adapter for Tavus helper
 scripts/tavusApiPlugin.ts    # Vite middleware for the same API
 patches/                     # liquid-gl@2.0.1 patch
@@ -86,3 +96,4 @@ docs/                        # Subsystem guides
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local workflow and PR checklist |
 | [`docs/liquid-gl-verification.md`](docs/liquid-gl-verification.md) | LiquidGL manual verification |
 | [`docs/tavus-cvi.md`](docs/tavus-cvi.md) | Tavus CVI + Daily integration |
+| [`docs/architecture/`](docs/architecture/) | C4 context / containers / dynamic / deployment |

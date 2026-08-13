@@ -11,8 +11,13 @@
   font-family: var(--font-system);
 }
 
-.call-visual-stage,
-#liquid-gl-snapshot {
+.call-screen--startup {
+  /* Black shell while auto-start leaves idle — never flash the old launcher. */
+  background: #000;
+}
+
+.call-screen .call-visual-stage,
+.call-screen #liquid-gl-snapshot {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -91,35 +96,35 @@
 }
 
 .local-camera-surface[data-mode="expanded"] {
-  top: calc(var(--safe-top) + 68px);
-  right: calc(var(--safe-right) + 24px);
+  top: calc(var(--safe-top) + var(--self-expanded-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
   left: auto;
   bottom: auto;
   width: var(--self-expanded-width);
-  aspect-ratio: var(--self-aspect);
+  aspect-ratio: var(--self-expanded-aspect);
   height: auto;
   border-radius: var(--radius-self-expanded);
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
   transition:
     border-radius var(--motion-self) var(--ease-out-expo),
-    box-shadow var(--motion-self) ease;
+    box-shadow var(--motion-self) var(--ease-out-expo);
 }
 
 .local-camera-surface[data-mode="compact"] {
-  top: calc(var(--safe-top) + 18px);
-  right: calc(var(--safe-right) + 24px);
+  top: calc(var(--safe-top) + var(--self-compact-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
   left: auto;
   bottom: auto;
   width: var(--self-compact-width);
-  aspect-ratio: var(--self-aspect);
+  aspect-ratio: var(--self-compact-aspect);
   height: auto;
   border-radius: var(--radius-self-compact);
   border: 1px solid rgba(255, 255, 255, 0.34);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
   transition:
     border-radius var(--motion-self) var(--ease-out-expo),
-    box-shadow var(--motion-self) ease;
+    box-shadow var(--motion-self) var(--ease-out-expo);
 }
 
 .local-camera-surface__video {
@@ -174,15 +179,57 @@
   object-fit: cover;
 }
 
-/* Positioned in the chrome layer, anchored to the self-view rect so its
-   content stays above the shared LiquidGL canvas. */
+/* Transparent overlay shares self-view geometry + morph; Flip pill is bottom-anchored. */
+.self-view-controls-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: var(--chrome-z);
+  background: transparent;
+  transform-origin: top right;
+  will-change: transform;
+}
+
+.self-view-controls-overlay[data-mode="fullscreen"] {
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.self-view-controls-overlay[data-mode="expanded"] {
+  top: calc(var(--safe-top) + var(--self-expanded-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
+  left: auto;
+  bottom: auto;
+  width: var(--self-expanded-width);
+  aspect-ratio: var(--self-expanded-aspect);
+  height: auto;
+}
+
+.self-view-controls-overlay[data-mode="compact"] {
+  top: calc(var(--safe-top) + var(--self-compact-top-offset));
+  right: calc(var(--safe-right) + var(--self-right-inset));
+  left: auto;
+  bottom: auto;
+  width: var(--self-compact-width);
+  aspect-ratio: var(--self-compact-aspect);
+  height: auto;
+}
+
 .self-flip-capsule {
   position: absolute;
-  width: 88px;
-  height: 38px;
-  border-radius: 19px;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  width: 86px;
+  height: 36px;
+  border-radius: 18px;
   color: #fff;
   z-index: var(--glass-z);
+}
+
+.self-view-controls-overlay[data-mode="fullscreen"] .self-flip-capsule {
+  display: none;
 }
 
 /* display: none zeroes the LiquidGL lens rect so no ghost glass remains. */
@@ -190,17 +237,19 @@
   display: none;
 }
 
-.self-flip-capsule[data-visible="true"] {
-  animation: chrome-in 220ms var(--ease-out-expo);
+.self-flip-capsule[data-visible="true"]
+  .self-flip-capsule__content {
+  animation: flip-content-in var(--motion-chrome) var(--ease-out-expo);
 }
 
 .self-flip-capsule__content {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 17px;
+  gap: 4px;
+  font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.1px;
   pointer-events: none;
 }
 
@@ -240,27 +289,26 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 
 .facetime-chrome.is-hidden {
   opacity: 0;
-  transform: scale(0.96);
+  transform: none;
   pointer-events: none;
 }
 
 .facetime-chrome.is-visible {
   opacity: 1;
-  transform: scale(1);
+  transform: none;
 }
 
 .contact-pill {
   position: absolute;
   top: calc(var(--safe-top) + 14px);
   left: calc(var(--safe-left) + 18px);
-  height: 44px;
+  height: 42px;
   max-width: min(68vw, 270px);
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   color: var(--color-white);
   min-width: 44px;
-  transition: width 240ms var(--ease-out-expo);
 }
 
 .contact-pill__content {
@@ -268,15 +316,15 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px 6px 6px;
+  gap: 7px;
+  padding: 4px 10px 4px 4px;
   pointer-events: none;
 }
 
 .contact-pill__avatar,
 .contact-pill__avatar-fallback {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -299,7 +347,8 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   display: block;
   font-size: 17px;
   font-weight: 600;
-  line-height: 1.15;
+  line-height: 1;
+  letter-spacing: -0.2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -335,7 +384,7 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 .control-rail {
   position: absolute;
   right: calc(var(--safe-right) + 24px);
-  bottom: calc(var(--safe-bottom) + 34px);
+  bottom: calc(var(--safe-bottom) + 28px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -458,7 +507,7 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
 
 .waiting-flip-btn {
   position: absolute;
-  left: calc(var(--safe-left) + 22px);
+  left: calc(var(--safe-left) + 17px);
   bottom: calc(var(--safe-bottom) + 38px);
   width: var(--control-waiting-flip);
   height: var(--control-waiting-flip);
@@ -494,8 +543,24 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   border: 0;
 }
 
-.camera-activation,
-.ended,
+/* Recoverable camera-action feedback — does not change call phase. */
+.camera-action-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 120px);
+  transform: translateX(-50%);
+  z-index: var(--toast-z);
+  max-width: min(320px, calc(100% - 48px));
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(20, 20, 20, 0.82);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  pointer-events: none;
+}
+
 .error-screen {
   position: absolute;
   inset: 0;
@@ -514,17 +579,43 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   z-index: 40;
 }
 
-.camera-activation__title,
-.ended__title,
 .error-screen__title {
   font-size: 28px;
   font-weight: 700;
   margin: 8px 0 0;
 }
 
-.camera-activation__body,
-.ended__duration,
 .error-screen__body {
+  font-size: 17px;
+  opacity: 0.72;
+  margin: 0;
+}
+
+.ended {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding:
+    calc(var(--safe-top) + 32px)
+    calc(var(--safe-right) + 24px)
+    calc(var(--safe-bottom) + 32px)
+    calc(var(--safe-left) + 24px);
+  background: #0a0a0a;
+  text-align: center;
+  z-index: 40;
+}
+
+.ended__title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+.ended__duration {
   font-size: 17px;
   opacity: 0.72;
   margin: 0;
@@ -579,6 +670,18 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   }
 }
 
+@keyframes flip-content-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes symbol-swap {
   from {
     opacity: 0.4;
@@ -609,4 +712,79 @@ html[data-liquid-chrome="hidden"] .liquid-canvas-layer {
   .control-rail {
     bottom: calc(var(--safe-bottom) + 16px);
   }
+}
+
+/* Live Mini App incoming-call card (transcript-sized, not full FaceTime). */
+.incoming-call-card {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px 16px;
+  background: #1c1c1e;
+  color: var(--color-white);
+  text-align: center;
+  font-family: var(--font-system);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.incoming-call-card__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 18%;
+  background: #2c2c2e;
+}
+
+.incoming-call-card__name {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.incoming-call-card__status {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.incoming-call-card__actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 280px;
+  margin-top: 16px;
+}
+
+.incoming-call-card__btn {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 22px;
+  font-size: 17px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.incoming-call-card__btn:active {
+  transform: scale(0.96);
+}
+
+.incoming-call-card__btn--decline {
+  background: var(--color-end-call);
+  color: var(--color-white);
+}
+
+.incoming-call-card__btn--accept {
+  background: var(--color-call-green);
+  color: #00330f;
 }

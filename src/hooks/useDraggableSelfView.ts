@@ -6,7 +6,15 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
+import {
+  SELF_VIEW_LAYOUT,
+  type SafeInsets,
+} from "../lib/callUi";
 
+/**
+ * Pixel position for the self-view tile. Recomputed from a saved corner name —
+ * never persisted as raw coordinates.
+ */
 export interface CornerPosition {
   top: number;
   left: number;
@@ -25,11 +33,17 @@ interface DragState {
   originTop: number;
 }
 
-interface DragOptions {
-  compact?: boolean;
+export interface DragOptions {
+  /** Recalculate saved-corner positions on resize / compact changes. */
+  active: boolean;
+  /** Attach pointer handlers for user dragging. */
+  draggable: boolean;
+  compact: boolean;
+  safeInsets: SafeInsets;
 }
 
 const STORAGE_KEY = "mini-pho-self-view";
+const ZERO_INSETS: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 // Persist corner names only — pixel coords go stale across resize / chrome hide.
 const VALID_CORNERS: ReadonlySet<string> = new Set([
@@ -43,24 +57,43 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function layoutBounds(
+  width: number,
+  height: number,
+  bounds: DOMRect,
+  compact: boolean,
+  safeInsets: SafeInsets,
+): { safeLeft: number; safeRight: number; safeTop: number; safeBottom: number } {
+  const leftPad = SELF_VIEW_LAYOUT.leftInset + safeInsets.left;
+  const rightPad = SELF_VIEW_LAYOUT.rightInset + safeInsets.right;
+  const topExpanded = SELF_VIEW_LAYOUT.expandedTopOffset + safeInsets.top;
+  const topCompact = SELF_VIEW_LAYOUT.compactTopOffset + safeInsets.top;
+  const railReserve = compact ? 24 : 280;
+
+  const safeLeft = leftPad;
+  const safeRight = Math.max(safeLeft, bounds.width - width - rightPad);
+  const safeTop = compact ? topCompact : topExpanded;
+  const safeBottom = Math.max(
+    safeTop,
+    bounds.height - height - railReserve - safeInsets.bottom,
+  );
+
+  return { safeLeft, safeRight, safeTop, safeBottom };
+}
+
 function anchors(
   width: number,
   height: number,
   bounds: DOMRect,
   compact: boolean,
+  safeInsets: SafeInsets,
 ): Record<SelfViewCorner, CornerPosition> {
-  const rightPad = 24;
-  const leftPad = 18;
-  const topExpanded = 68;
-  const topCompact = 18;
-  const railReserve = compact ? 24 : 280;
-
-  const safeLeft = leftPad;
-  const safeRight = bounds.width - width - rightPad;
-  const safeTop = compact ? topCompact : topExpanded;
-  const safeBottom = Math.max(
-    safeTop,
-    bounds.height - height - railReserve,
+  const { safeLeft, safeRight, safeTop, safeBottom } = layoutBounds(
+    width,
+    height,
+    bounds,
+    compact,
+    safeInsets,
   );
 
   return {
@@ -90,8 +123,9 @@ function nearestCorner(
   height: number,
   bounds: DOMRect,
   compact: boolean,
+  safeInsets: SafeInsets,
 ): { corner: SelfViewCorner; position: CornerPosition } {
-  const corners = anchors(width, height, bounds, compact);
+  const corners = anchors(width, height, bounds, compact, safeInsets);
   let bestCorner: SelfViewCorner = "top-right";
   let bestDist = Number.POSITIVE_INFINITY;
   for (const [name, position] of Object.entries(corners) as Array<
@@ -111,12 +145,34 @@ function nearestCorner(
   };
 }
 
+function defaultPosition(
+  width: number,
+  height: number,
+  bounds: DOMRect,
+  compact: boolean,
+  safeInsets: SafeInsets,
+): CornerPosition {
+  return anchors(width, height, bounds, compact, safeInsets)["top-right"];
+}
+
+/**
+ * Draggable self-view that snaps to corners. Persists a corner name in
+ * `sessionStorage` (`mini-pho-self-view`), not pixel coordinates.
+ *
+ * @param containerRef - Call screen root used for layout bounds.
+ * @param options - Active/draggable/compact flags and safe-area insets.
+ * @returns Node ref, pixel style, drag handlers, and dragging flag.
+ */
 export function useDraggableSelfView(
   containerRef: RefObject<HTMLElement | null>,
-  enabled: boolean,
-  options: DragOptions = {},
+  options: DragOptions,
 ) {
-  const compact = options.compact ?? false;
+  const {
+    active,
+    draggable,
+    compact,
+    safeInsets = ZERO_INSETS,
+  } = options;
   const [corner, setCorner] = useState<SelfViewCorner | null>(null);
   const [position, setPosition] = useState<CornerPosition | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -126,8 +182,12 @@ export function useDraggableSelfView(
   const livePosition = useRef<CornerPosition | null>(null);
   const moveFrame = useRef<number | null>(null);
   const positionRef = useRef<CornerPosition | null>(null);
+  const safeInsetsRef = useRef(safeInsets);
+  const compactRef = useRef(compact);
 
   positionRef.current = position;
+  safeInsetsRef.current = safeInsets;
+  compactRef.current = compact;
 
   useEffect(() => {
     try {
@@ -183,7 +243,7 @@ export function useDraggableSelfView(
 
   const onPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
-      if (!enabled) return;
+      if (!draggable) return;
       const node = nodeRef.current;
       const container = containerRef.current;
       if (!node || !container) return;
@@ -202,7 +262,7 @@ export function useDraggableSelfView(
       livePosition.current = { left: originLeft, top: originTop };
       setDragging(true);
     },
-    [containerRef, enabled],
+    [containerRef, draggable],
   );
 
   const onPointerMove = useCallback(
@@ -211,17 +271,24 @@ export function useDraggableSelfView(
       const bounds = containerRef.current.getBoundingClientRect();
       const width = nodeRef.current.offsetWidth;
       const height = nodeRef.current.offsetHeight;
+      const edges = layoutBounds(
+        width,
+        height,
+        bounds,
+        compactRef.current,
+        safeInsetsRef.current,
+      );
       const dx = event.clientX - drag.current.startX;
       const dy = event.clientY - drag.current.startY;
       const left = clamp(
         drag.current.originLeft + dx,
-        8,
-        bounds.width - width - 8,
+        edges.safeLeft,
+        edges.safeRight,
       );
       const top = clamp(
         drag.current.originTop + dy,
-        8,
-        bounds.height - height - 100,
+        edges.safeTop,
+        edges.safeBottom,
       );
       livePosition.current = { left, top };
 
@@ -252,17 +319,19 @@ export function useDraggableSelfView(
     const bounds = containerRef.current.getBoundingClientRect();
     const width = nodeRef.current.offsetWidth;
     const height = nodeRef.current.offsetHeight;
-    const current = livePosition.current ?? {
-      left: bounds.width - width - 24,
-      top: compact ? 18 : 68,
-    };
+    const insets = safeInsetsRef.current;
+    const isCompact = compactRef.current;
+    const current =
+      livePosition.current ??
+      defaultPosition(width, height, bounds, isCompact, insets);
     const snapped = nearestCorner(
       current.left,
       current.top,
       width,
       height,
       bounds,
-      compact,
+      isCompact,
+      insets,
     );
     if (nodeRef.current) {
       nodeRef.current.style.transform = "";
@@ -271,11 +340,11 @@ export function useDraggableSelfView(
     setDragging(false);
     drag.current = null;
     livePosition.current = null;
-  }, [clearMoveFrame, compact, containerRef, persist]);
+  }, [clearMoveFrame, containerRef, persist]);
 
   useEffect(() => {
     if (
-      !enabled ||
+      !active ||
       !corner ||
       !containerRef.current ||
       !nodeRef.current
@@ -287,7 +356,13 @@ export function useDraggableSelfView(
     const height = nodeRef.current.offsetHeight;
     if (width <= 0 || height <= 0) return;
 
-    const nextPosition = anchors(width, height, bounds, compact)[corner];
+    const nextPosition = anchors(
+      width,
+      height,
+      bounds,
+      compact,
+      safeInsets,
+    )[corner];
     if (
       !positionRef.current ||
       nextPosition.left !== positionRef.current.left ||
@@ -296,7 +371,7 @@ export function useDraggableSelfView(
       setPosition(nextPosition);
       positionRef.current = nextPosition;
     }
-  }, [boundsVersion, compact, containerRef, corner, enabled]);
+  }, [active, boundsVersion, compact, containerRef, corner, safeInsets]);
 
   useEffect(() => () => clearMoveFrame(), [clearMoveFrame]);
 

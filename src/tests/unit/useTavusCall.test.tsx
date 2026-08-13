@@ -156,6 +156,94 @@ describe("useTavusCall", () => {
     expect(call.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it("awaits in-flight end before creating a new Daily call on Retry", async () => {
+    const first = createMockCall();
+    const second = createMockCall();
+    createCallObject
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+
+    let resolveEndConversation: (() => void) | undefined;
+    endTavusConversation.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEndConversation = resolve;
+        }),
+    );
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let endPromise: Promise<void> | undefined;
+    await act(async () => {
+      endPromise = result.current.endCall();
+    });
+
+    // Retry while Tavus End Conversation is still in flight.
+    let startPromise: Promise<void> | undefined;
+    await act(async () => {
+      startPromise = result.current.startCall();
+    });
+
+    expect(createCallObject).toHaveBeenCalledTimes(1);
+    expect(second.join).not.toHaveBeenCalled();
+
+    resolveEndConversation?.();
+    await act(async () => {
+      await endPromise;
+      await startPromise;
+    });
+
+    expect(createCallObject).toHaveBeenCalledTimes(2);
+    expect(first.leave).toHaveBeenCalledTimes(1);
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(second.leave).not.toHaveBeenCalled();
+    expect(second.destroy).not.toHaveBeenCalled();
+    expect(second.join).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the same promise for overlapping endCall", async () => {
+    const call = createMockCall();
+    createCallObject.mockReturnValue(call);
+
+    let resolveEndConversation: (() => void) | undefined;
+    endTavusConversation.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEndConversation = resolve;
+        }),
+    );
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let first: Promise<void> | undefined;
+    let second: Promise<void> | undefined;
+    await act(async () => {
+      first = result.current.endCall();
+      second = result.current.endCall();
+    });
+
+    expect(first).toBe(second);
+
+    resolveEndConversation?.();
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
+    expect(endTavusConversation).toHaveBeenCalledTimes(1);
+    expect(call.leave).toHaveBeenCalledTimes(1);
+    expect(call.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("creates a fresh conversation after reset", async () => {
     const first = createMockCall();
     const second = createMockCall();
@@ -259,6 +347,181 @@ describe("useTavusCall", () => {
 
     expect(endTavusConversation).toHaveBeenCalledWith("conv_denied");
     expect(call.join).not.toHaveBeenCalled();
+    getUserMedia.mockRestore();
+  });
+
+  it("passes the newly acquired camera track to Daily on flip", async () => {
+    type FakeTrack = MediaStreamTrack & {
+      stop: ReturnType<typeof vi.fn>;
+      getSettings: ReturnType<typeof vi.fn>;
+    };
+    function createFakeTrack(
+      kind: "audio" | "video",
+      settings: MediaTrackSettings = {},
+    ): FakeTrack {
+      return {
+        kind,
+        enabled: true,
+        stop: vi.fn(),
+        getSettings: vi.fn(() => settings),
+      } as unknown as FakeTrack;
+    }
+    function createFakeStream(tracks: FakeTrack[]): MediaStream {
+      return {
+        getTracks: () => tracks,
+        getVideoTracks: () => tracks.filter((t) => t.kind === "video"),
+        getAudioTracks: () => tracks.filter((t) => t.kind === "audio"),
+      } as unknown as MediaStream;
+    }
+
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video", {
+      deviceId: "back",
+      facingMode: "environment",
+    });
+    const replacement = createFakeStream([newVideo]);
+
+    const getUserMedia = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
+      configurable: true,
+      value: vi.fn(async () => []),
+    });
+
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((t) => t.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((t) => t.kind === "audio");
+        }
+      },
+    });
+
+    const call = createMockCall();
+    createCallObject.mockReturnValue(call);
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let flipResult: Awaited<ReturnType<typeof result.current.flipCamera>>;
+    await act(async () => {
+      flipResult = await result.current.flipCamera();
+    });
+
+    expect(flipResult!).toEqual({ status: "switched" });
+    expect(call.setInputDevicesAsync).toHaveBeenCalledWith({
+      videoSource: newVideo,
+    });
+    expect(result.current.localStream?.getVideoTracks()[0]).toBe(newVideo);
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBeNull();
+    getUserMedia.mockRestore();
+  });
+
+  it("keeps the call alive when Daily rejects a camera flip", async () => {
+    type FakeTrack = MediaStreamTrack & {
+      stop: ReturnType<typeof vi.fn>;
+      getSettings: ReturnType<typeof vi.fn>;
+    };
+    function createFakeTrack(
+      kind: "audio" | "video",
+      settings: MediaTrackSettings = {},
+    ): FakeTrack {
+      return {
+        kind,
+        enabled: true,
+        stop: vi.fn(),
+        getSettings: vi.fn(() => settings),
+      } as unknown as FakeTrack;
+    }
+    function createFakeStream(tracks: FakeTrack[]): MediaStream {
+      return {
+        getTracks: () => tracks,
+        getVideoTracks: () => tracks.filter((t) => t.kind === "video"),
+        getAudioTracks: () => tracks.filter((t) => t.kind === "audio"),
+      } as unknown as MediaStream;
+    }
+
+    const oldVideo = createFakeTrack("video", { deviceId: "front" });
+    const audio = createFakeTrack("audio");
+    const initial = createFakeStream([oldVideo, audio]);
+    const newVideo = createFakeTrack("video", { deviceId: "back" });
+    const replacement = createFakeStream([newVideo]);
+
+    const getUserMedia = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(replacement);
+
+    Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
+      configurable: true,
+      value: vi.fn(async () => []),
+    });
+
+    Object.defineProperty(globalThis, "MediaStream", {
+      configurable: true,
+      value: class {
+        private tracks: FakeTrack[];
+        constructor(tracks: FakeTrack[] = []) {
+          this.tracks = tracks;
+        }
+        getTracks() {
+          return this.tracks;
+        }
+        getVideoTracks() {
+          return this.tracks.filter((t) => t.kind === "video");
+        }
+        getAudioTracks() {
+          return this.tracks.filter((t) => t.kind === "audio");
+        }
+      },
+    });
+
+    const call = createMockCall();
+    call.setInputDevicesAsync.mockRejectedValueOnce(
+      new Error("Daily input failed"),
+    );
+    createCallObject.mockReturnValue(call);
+
+    const { useTavusCall } = await import("../../hooks/useTavusCall");
+    const { result } = renderHook(() => useTavusCall());
+
+    await act(async () => {
+      await result.current.startCall();
+    });
+
+    let flipResult: Awaited<ReturnType<typeof result.current.flipCamera>>;
+    await act(async () => {
+      flipResult = await result.current.flipCamera();
+    });
+
+    expect(flipResult!.status).toBe("failed");
+    expect(newVideo.stop).toHaveBeenCalled();
+    expect(oldVideo.stop).not.toHaveBeenCalled();
+    expect(result.current.localStream?.getVideoTracks()[0]).toBe(oldVideo);
+    expect(result.current.error).toBeNull();
+    expect(result.current.cameraActionError).toBe("Daily input failed");
+    expect(endTavusConversation).not.toHaveBeenCalled();
+    expect(result.current.isFlippingCamera).toBe(false);
     getUserMedia.mockRestore();
   });
 });

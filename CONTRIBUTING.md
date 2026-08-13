@@ -20,7 +20,8 @@ One Vite instance on port `5173`. Do not start a second copy.
 
 ### Local routes
 
-- Call UI: [http://localhost:5173/call/demo](http://localhost:5173/call/demo)
+- Call UI: [http://localhost:5173/](http://localhost:5173/) (home) or [http://localhost:5173/call/demo](http://localhost:5173/call/demo)
+- Incoming Live Mini App card: [http://localhost:5173/incoming/garry](http://localhost:5173/incoming/garry)
 
 Architecture and ownership: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 

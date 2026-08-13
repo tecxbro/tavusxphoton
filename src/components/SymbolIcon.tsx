@@ -34,6 +34,13 @@ interface SymbolIconProps {
   style?: CSSProperties;
 }
 
+/**
+ * Inline Apple-exported call-symbol SVG. Metrics come from {@link SYMBOL_METRICS}
+ * so glyphs keep comparable optical weight on the control rail.
+ *
+ * @param props.name - Symbol asset key.
+ * @param props.size - Optional optical height override (width scales with aspect).
+ */
 export function SymbolIcon({ name, size, className, style }: SymbolIconProps) {
   const asset = SYMBOL_ASSETS[name];
   const metric = SYMBOL_METRICS[name];

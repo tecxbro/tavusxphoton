@@ -83,7 +83,7 @@ describe("query parameter parsing", () => {
   it("applies defaults and overrides without remoteVideo", () => {
     expect(parseCallSearchParams("demo", "")).toMatchObject({
       sessionId: "demo",
-      participantName: "Gary",
+      participantName: "Garry Tan",
     });
     expect(
       parseCallSearchParams(
@@ -116,7 +116,7 @@ describe("query parameter parsing", () => {
       "demo",
       "avatar=https://evil.example/a.jpg",
     );
-    expect(config.participantAvatar).toBe("/avatars/pho.jpg");
+    expect(config.participantAvatar).toBe("/avatars/agents/garry-tan.webp");
   });
 
   it("builds initials", () => {
@@ -128,6 +128,18 @@ describe("query parameter parsing", () => {
 describe("auto-hide timeout", () => {
   it("uses the product timeout constant", () => {
     expect(AUTO_HIDE_MS).toBe(2000);
+  });
+});
+
+describe("shared call motion", () => {
+  it("keeps FaceTime-aligned timing constants", async () => {
+    const { CALL_MOTION, AUTO_HIDE_MS: hide } = await import(
+      "../../lib/callState"
+    );
+    expect(CALL_MOTION.connectingMinMs).toBe(400);
+    expect(CALL_MOTION.joinMs).toBe(200);
+    expect(CALL_MOTION.controlMs).toBe(180);
+    expect(hide).toBe(2000);
   });
 });
 

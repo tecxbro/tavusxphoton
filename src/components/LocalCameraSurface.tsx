@@ -6,9 +6,9 @@ import {
   type RefObject,
 } from "react";
 import { getInitials } from "../lib/callState";
-import { useLayoutMorph } from "../hooks/useLayoutMorph";
+import type { LocalCameraMode } from "../lib/callUi";
 
-export type LocalCameraMode = "fullscreen" | "expanded" | "compact";
+export type { LocalCameraMode };
 
 interface LocalCameraSurfaceProps {
   stream: MediaStream | null;
@@ -18,6 +18,7 @@ interface LocalCameraSurfaceProps {
   selfName: string;
   selfAvatar?: string;
   style?: CSSProperties;
+  /** Forwarded to the moving root — CallScreen owns the shared FLIP morph. */
   nodeRef: RefObject<HTMLDivElement | null>;
   videoRef?: RefObject<HTMLVideoElement | null>;
   onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
@@ -26,6 +27,10 @@ interface LocalCameraSurfaceProps {
   draggable?: boolean;
 }
 
+/**
+ * Local camera `<video>` + placeholder. Stays mounted during active phases
+ * (even when camera-off) so LiquidGL snapshot structure does not remount.
+ */
 export function LocalCameraSurface({
   stream,
   videoEnabled,
@@ -42,7 +47,6 @@ export function LocalCameraSurface({
   draggable = false,
 }: LocalCameraSurfaceProps) {
   const innerVideoRef = useRef<HTMLVideoElement | null>(null);
-  useLayoutMorph(nodeRef, mode);
 
   useEffect(() => {
     const element = innerVideoRef.current;

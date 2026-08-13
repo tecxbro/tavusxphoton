@@ -5,7 +5,15 @@ export interface Rect {
   height: number;
 }
 
-/** Object-fit: cover source crop for a media frame drawn into a destination box. */
+/**
+ * Object-fit: cover source crop for a media frame drawn into a destination box.
+ *
+ * @param sourceWidth - Source media width in px.
+ * @param sourceHeight - Source media height in px.
+ * @param destWidth - Destination box width in px.
+ * @param destHeight - Destination box height in px.
+ * @returns Source rectangle to sample when drawing cover-fit.
+ */
 export function objectCoverSourceRect(
   sourceWidth: number,
   sourceHeight: number,
@@ -38,6 +46,16 @@ export function objectCoverSourceRect(
   };
 }
 
+/**
+ * Begin a rounded-rect path on a 2D canvas context (for LiquidGL video blit masks).
+ *
+ * @param ctx - Canvas 2D context.
+ * @param x - Left edge.
+ * @param y - Top edge.
+ * @param width - Box width.
+ * @param height - Box height.
+ * @param radius - Corner radius (clamped to half-min side).
+ */
 export function roundRectPath(
   ctx: CanvasRenderingContext2D,
   x: number,

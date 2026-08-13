@@ -24,13 +24,18 @@
 
   --control-top: 44px;
   --control-rail: 56px;
-  --control-end: 58px;
-  --control-waiting-flip: 50px;
+  --control-end: 55px;
+  --control-waiting-flip: 43px;
   --control-capture: 44px;
 
   --self-expanded-width: clamp(120px, 29.5vw, 134px);
   --self-compact-width: clamp(88px, 21.8vw, 98px);
-  --self-aspect: 0.46;
+  --self-expanded-aspect: 0.47;
+  --self-compact-aspect: 0.46;
+  --self-left-inset: 18px;
+  --self-right-inset: 20px;
+  --self-expanded-top-offset: 68px;
+  --self-compact-top-offset: 18px;
 
   --space-edge: 18px;
   --space-control: 12px;
@@ -48,6 +53,7 @@
   --toast-z: 60;
   --flash-z: 70;
 
+  /* Effective safe insets — useSafeViewport / CallScreen overwrite these. */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -56,9 +62,9 @@
   --vv-width: 100vw;
   --vv-height: 100dvh;
 
-  --motion-join: 520ms;
-  --motion-chrome: 280ms;
-  --motion-self: 400ms;
+  --motion-join: 200ms;
+  --motion-chrome: 180ms;
+  --motion-self: 180ms;
   --motion-more-open: 420ms;
   --motion-more-close: 210ms;
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

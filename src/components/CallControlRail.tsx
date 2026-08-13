@@ -9,6 +9,10 @@ interface CallControlRailProps {
   onEnd: () => void;
 }
 
+/**
+ * FaceTime control toolbar: camera, mic, decorative More (disabled), end call.
+ * Camera/mic/More are LiquidGL targets; End Call is never glass.
+ */
 export function CallControlRail({
   videoEnabled,
   audioEnabled,

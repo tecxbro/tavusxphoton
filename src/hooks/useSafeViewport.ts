@@ -1,27 +1,153 @@
 import { useEffect, useRef, useState } from "react";
+import type { SafeInsets } from "../lib/callUi";
 
 export interface SafeViewport {
   width: number;
   height: number;
   offsetTop: number;
   offsetLeft: number;
+  /** Raw env(safe-area-inset-*) values from the host. */
+  nativeInsets: SafeInsets;
+  /** Native insets with the Spectrum/iPhone top fallback when needed. */
+  safeInsets: SafeInsets;
+}
+
+export interface ViewportSize {
+  width: number;
+  height: number;
+}
+
+const ZERO_INSETS: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+const IPHONE_TOP_FALLBACK_PX = 47;
+
+function parseCssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readNativeInsets(): SafeInsets {
+  if (typeof document === "undefined") return ZERO_INSETS;
+
+  const probe = document.createElement("div");
+  probe.style.cssText = [
+    "position:fixed",
+    "visibility:hidden",
+    "pointer-events:none",
+    "padding-top:env(safe-area-inset-top, 0px)",
+    "padding-right:env(safe-area-inset-right, 0px)",
+    "padding-bottom:env(safe-area-inset-bottom, 0px)",
+    "padding-left:env(safe-area-inset-left, 0px)",
+  ].join(";");
+  document.documentElement.appendChild(probe);
+  const style = getComputedStyle(probe);
+  const insets: SafeInsets = {
+    top: parseCssPx(style.paddingTop),
+    right: parseCssPx(style.paddingRight),
+    bottom: parseCssPx(style.paddingBottom),
+    left: parseCssPx(style.paddingLeft),
+  };
+  probe.remove();
+  return insets;
+}
+
+/**
+ * Portrait phone viewports in the FaceTime reference size band. Used only when
+ * the host reports a zero native top inset (common in Spectrum/iMessage webviews).
+ */
+export function isReferencePhoneViewport({
+  width,
+  height,
+}: ViewportSize): boolean {
+  return (
+    height > width &&
+    width >= 375 &&
+    width <= 440 &&
+    height >= 800 &&
+    height <= 960
+  );
+}
+
+/**
+ * Prefer native insets. Apply the 47px top fallback only when native top is 0
+ * and the measured viewport matches the reference phone band — never landscape,
+ * desktop-sized, or portrait sizes outside that range.
+ */
+export function shouldApplyIphoneTopFallback(
+  nativeTop: number,
+  viewport: ViewportSize,
+): boolean {
+  if (nativeTop > 0) return false;
+  return isReferencePhoneViewport(viewport);
+}
+
+/**
+ * Apply Spectrum/iPhone top inset fallback when native top is 0 on a reference
+ * phone viewport; otherwise return native insets unchanged.
+ *
+ * @param native - Host-reported safe-area insets.
+ * @param viewport - Current CSS viewport size.
+ * @returns Effective insets for call layout CSS vars.
+ */
+export function effectiveSafeInsets(
+  native: SafeInsets,
+  viewport: ViewportSize,
+): SafeInsets {
+  if (!shouldApplyIphoneTopFallback(native.top, viewport)) {
+    return native;
+  }
+  return { ...native, top: IPHONE_TOP_FALLBACK_PX };
 }
 
 function readViewport(): SafeViewport {
   const vv = window.visualViewport;
+  const width = vv?.width ?? window.innerWidth;
+  const height = vv?.height ?? window.innerHeight;
+  const nativeInsets = readNativeInsets();
   return {
-    width: vv?.width ?? window.innerWidth,
-    height: vv?.height ?? window.innerHeight,
+    width,
+    height,
     offsetTop: vv?.offsetTop ?? 0,
     offsetLeft: vv?.offsetLeft ?? 0,
+    nativeInsets,
+    safeInsets: effectiveSafeInsets(nativeInsets, { width, height }),
   };
 }
 
+function insetsEqual(a: SafeInsets, b: SafeInsets): boolean {
+  return (
+    a.top === b.top &&
+    a.right === b.right &&
+    a.bottom === b.bottom &&
+    a.left === b.left
+  );
+}
+
+function applySafeInsetCss(insets: SafeInsets): void {
+  const root = document.documentElement.style;
+  root.setProperty("--safe-top", `${insets.top}px`);
+  root.setProperty("--safe-right", `${insets.right}px`);
+  root.setProperty("--safe-bottom", `${insets.bottom}px`);
+  root.setProperty("--safe-left", `${insets.left}px`);
+}
+
+const SSR_VIEWPORT: SafeViewport = {
+  width: 393,
+  height: 852,
+  offsetTop: 0,
+  offsetLeft: 0,
+  nativeInsets: ZERO_INSETS,
+  safeInsets: { ...ZERO_INSETS, top: IPHONE_TOP_FALLBACK_PX },
+};
+
+/**
+ * Tracks visual viewport size and safe-area insets for call layout.
+ * Writes `--safe-*` CSS vars on the document element.
+ *
+ * @returns Current viewport metrics including native and effective insets.
+ */
 export function useSafeViewport() {
   const [viewport, setViewport] = useState<SafeViewport>(() =>
-    typeof window === "undefined"
-      ? { width: 393, height: 852, offsetTop: 0, offsetLeft: 0 }
-      : readViewport(),
+    typeof window === "undefined" ? SSR_VIEWPORT : readViewport(),
   );
   const frame = useRef<number | null>(null);
 
@@ -35,7 +161,9 @@ export function useSafeViewport() {
           current.width === next.width &&
           current.height === next.height &&
           current.offsetTop === next.offsetTop &&
-          current.offsetLeft === next.offsetLeft
+          current.offsetLeft === next.offsetLeft &&
+          insetsEqual(current.nativeInsets, next.nativeInsets) &&
+          insetsEqual(current.safeInsets, next.safeInsets)
             ? current
             : next,
         );
@@ -47,6 +175,7 @@ export function useSafeViewport() {
           "--vv-height",
           `${next.height}px`,
         );
+        applySafeInsetCss(next.safeInsets);
       });
     };
 

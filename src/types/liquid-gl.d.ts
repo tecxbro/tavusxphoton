@@ -24,6 +24,11 @@ declare module "liquid-gl" {
     options?: LiquidGLOptions;
   }
 
+  /** Patched liquid-gl@2.0.1 renderer methods used by the app. */
+  export interface LiquidGLRenderer {
+    _rebuildDynamicVideoTexture(): void;
+  }
+
   export default function liquidGL(
     options?: LiquidGLOptions,
   ): LiquidGLInstance | LiquidGLInstance[] | undefined;

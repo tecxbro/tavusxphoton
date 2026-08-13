@@ -12,7 +12,11 @@ type VideoWithFrameCallback = HTMLVideoElement & {
 
 /**
  * Fires once when the video has a decoded frame ready to present.
- * Prefer requestVideoFrameCallback; fall back to loadeddata + readyState.
+ * Prefer `requestVideoFrameCallback`; fall back to `loadeddata` + `readyState`.
+ *
+ * @param videoRef - Target `<video>` element.
+ * @param enabled - When false, resets and does not fire.
+ * @param onFirstFrame - Invoked once per enabled cycle.
  */
 export function useFirstVideoFrame(
   videoRef: RefObject<HTMLVideoElement | null>,

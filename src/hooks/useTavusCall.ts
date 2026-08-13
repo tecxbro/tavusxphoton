@@ -11,7 +11,11 @@ import {
   createTavusConversation,
   endTavusConversation,
 } from "../lib/tavus/tavus-client";
-import { useMediaDevices } from "./useMediaDevices";
+import {
+  useMediaDevices,
+  type CameraFlipResult,
+  type FlipBeforeAttach,
+} from "./useMediaDevices";
 
 export interface UseTavusCallResult {
   startCall: () => Promise<void>;
@@ -23,11 +27,23 @@ export interface UseTavusCallResult {
   videoEnabled: boolean;
   audioEnabled: boolean;
   facingMode: CameraFacing;
+  isFlippingCamera: boolean;
   toggleVideo: () => boolean;
   toggleAudio: () => boolean;
-  flipCamera: () => Promise<CameraFacing | null>;
+  /** Pass the exact acquired track to Daily. Does not stop tracks. */
+  replaceVideoTrack: (track: MediaStreamTrack) => Promise<void>;
+  /**
+   * Runs the media-owned flip transaction. CallScreen may supply
+   * `replaceVideoTrack`; defaults to the Daily attachment from this hook.
+   */
+  flipCamera: (
+    replaceVideoTrack?: FlipBeforeAttach,
+  ) => Promise<CameraFlipResult>;
   palJoined: boolean;
+  /** Fatal connection / permission / Daily errors only. */
   error: string | null;
+  /** Recoverable camera-action failures; must not end the call. */
+  cameraActionError: string | null;
   starting: boolean;
 }
 
@@ -57,13 +73,50 @@ function isRemoteParticipant(participant: DailyParticipant): boolean {
   return !participant.local;
 }
 
+/**
+ * Serialize Daily leave/destroy so Strict Mode remount (autoStart) cannot
+ * createCallObject while a previous instance is still tearing down.
+ */
+let dailyTeardownChain: Promise<void> = Promise.resolve();
+
+function enqueueDailyTeardown(call: DailyCall): Promise<void> {
+  dailyTeardownChain = dailyTeardownChain
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        if (!call.isDestroyed()) {
+          await call.leave();
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        if (!call.isDestroyed()) {
+          await call.destroy();
+        }
+      } catch {
+        // ignore
+      }
+    });
+  return dailyTeardownChain;
+}
+
+/**
+ * Orchestrates Tavus create/join/end and Daily media for the live Garry call.
+ * Local tracks stay owned by {@link useMediaDevices}; this hook attaches them
+ * to Daily and maps remote participant / track events into call state inputs.
+ *
+ * @returns Media streams, toggles, flip helpers, and fatal vs recoverable errors.
+ */
 export function useTavusCall(): UseTavusCallResult {
   const {
     stream: localStream,
     videoEnabled,
     audioEnabled,
     facingMode,
+    isFlippingCamera,
     error: mediaError,
+    cameraActionError,
     requestPermissions,
     toggleVideo: toggleMediaVideo,
     toggleAudio: toggleMediaAudio,
@@ -82,13 +135,11 @@ export function useTavusCall(): UseTavusCallResult {
   const callRef = useRef<DailyCall | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const startInFlightRef = useRef<Promise<void> | null>(null);
+  const endInFlightRef = useRef<Promise<void> | null>(null);
   const endingRef = useRef(false);
   const generationRef = useRef(0);
   const palJoinedRef = useRef(false);
   const handlersRef = useRef<DailyHandlers | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-
-  localStreamRef.current = localStream;
 
   const clearRemoteStreams = useCallback(() => {
     setRemoteVideoStream(null);
@@ -210,44 +261,21 @@ export function useTavusCall(): UseTavusCallResult {
     ],
   );
 
-  const cleanupCallObject = useCallback(async () => {
-    const call = callRef.current;
-    callRef.current = null;
-    if (!call) return;
-    removeListeners(call);
-    try {
-      if (!call.isDestroyed()) {
-        await call.leave();
-      }
-    } catch {
-      // ignore
+  const cleanupCallObject = useCallback(async (call?: DailyCall | null) => {
+    const target = call ?? callRef.current;
+    if (callRef.current === target) {
+      callRef.current = null;
     }
-    try {
-      if (!call.isDestroyed()) {
-        await call.destroy();
-      }
-    } catch {
-      // ignore
-    }
+    if (!target) return;
+    removeListeners(target);
+    await enqueueDailyTeardown(target);
   }, [removeListeners]);
-
-  const endConversationIfNeeded = useCallback(async () => {
-    const conversationId = conversationIdRef.current;
-    conversationIdRef.current = null;
-    if (!conversationId) return;
-    try {
-      await endTavusConversation(conversationId);
-    } catch {
-      // Best-effort end; unexpected disconnect uses Tavus timeout.
-    }
-  }, []);
 
   const startCall = useCallback(async () => {
     if (startInFlightRef.current) {
       return startInFlightRef.current;
     }
 
-    endingRef.current = false;
     setStarting(true);
     setError(null);
     setPalJoined(false);
@@ -260,9 +288,18 @@ export function useTavusCall(): UseTavusCallResult {
       let createdConversationId: string | null = null;
 
       try {
+        // Wait for any in-flight end + Daily leave/destroy before creating
+        // another call object — Retry must not race teardown against callRef.
+        await endInFlightRef.current?.catch(() => undefined);
+        await dailyTeardownChain.catch(() => undefined);
+        if (generation !== generationRef.current) {
+          return;
+        }
+        endingRef.current = false;
+
         const call = DailyIframe.createCallObject();
         if (generation !== generationRef.current) {
-          await call.destroy();
+          await enqueueDailyTeardown(call);
           return;
         }
         callRef.current = call;
@@ -299,7 +336,7 @@ export function useTavusCall(): UseTavusCallResult {
             }
           }
           conversationIdRef.current = null;
-          await cleanupCallObject();
+          await cleanupCallObject(call);
           setError(mediaError || "Permission denied");
           return;
         }
@@ -388,21 +425,57 @@ export function useTavusCall(): UseTavusCallResult {
     syncRemoteFromParticipant,
   ]);
 
-  const endCall = useCallback(async () => {
-    if (endingRef.current) return;
+  const endCall = useCallback((): Promise<void> => {
+    if (endInFlightRef.current) {
+      return endInFlightRef.current;
+    }
+
     endingRef.current = true;
     generationRef.current += 1;
     startInFlightRef.current = null;
     setStarting(false);
 
-    await endConversationIfNeeded();
-    await cleanupCallObject();
-    stopAll();
-    clearRemoteStreams();
-    setPalJoined(false);
-    palJoinedRef.current = false;
-    endingRef.current = false;
-  }, [cleanupCallObject, clearRemoteStreams, endConversationIfNeeded, stopAll]);
+    // Capture the exact session being torn down so a concurrent Retry cannot
+    // redirect cleanup onto a newly created Daily call / conversation.
+    const callToEnd = callRef.current;
+    callRef.current = null;
+    const conversationToEnd = conversationIdRef.current;
+    conversationIdRef.current = null;
+
+    // Publish the in-flight promise before any work so concurrent startCall
+    // awaits it even when teardown has no async steps.
+    let settle!: () => void;
+    const run = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    endInFlightRef.current = run;
+
+    void (async () => {
+      try {
+        if (conversationToEnd) {
+          try {
+            await endTavusConversation(conversationToEnd);
+          } catch {
+            // Best-effort end; unexpected disconnect uses Tavus timeout.
+          }
+        }
+        if (callToEnd) {
+          removeListeners(callToEnd);
+          await enqueueDailyTeardown(callToEnd);
+        }
+        stopAll();
+        clearRemoteStreams();
+        setPalJoined(false);
+        palJoinedRef.current = false;
+      } finally {
+        endingRef.current = false;
+        endInFlightRef.current = null;
+        settle();
+      }
+    })();
+
+    return run;
+  }, [clearRemoteStreams, removeListeners, stopAll]);
 
   const resetCall = useCallback(async () => {
     await endCall();
@@ -427,31 +500,38 @@ export function useTavusCall(): UseTavusCallResult {
     return enabled;
   }, [toggleMediaAudio]);
 
-  const flipCamera = useCallback(async () => {
-    const nextFacing = await flipMediaCamera();
-    if (!nextFacing) return null;
-
-    const call = callRef.current;
-    const videoTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (call && !call.isDestroyed() && videoTrack) {
-      try {
-        await call.setInputDevicesAsync({ videoSource: videoTrack });
-      } catch {
-        // UI flip still succeeded; Daily will keep prior camera if update fails.
+  const replaceVideoTrack = useCallback(
+    async (track: MediaStreamTrack): Promise<void> => {
+      const call = callRef.current;
+      if (!call || call.isDestroyed()) {
+        return;
       }
-    }
-    return nextFacing;
-  }, [flipMediaCamera]);
+      // Pass the supplied track directly — do not acquire or stop tracks here.
+      // Let Daily rejection reach the camera transaction; do not end the call.
+      await call.setInputDevicesAsync({
+        videoSource: track,
+      });
+    },
+    [],
+  );
+
+  const flipCamera = useCallback(
+    (attach: FlipBeforeAttach = replaceVideoTrack) => {
+      // Transaction lives in useMediaDevices; Daily attachment is supplied.
+      return flipMediaCamera(attach);
+    },
+    [flipMediaCamera, replaceVideoTrack],
+  );
 
   useEffect(() => {
     return () => {
       generationRef.current += 1;
+      startInFlightRef.current = null;
       const call = callRef.current;
       callRef.current = null;
       if (call) {
         removeListeners(call);
-        void call.leave().catch(() => undefined);
-        void call.destroy().catch(() => undefined);
+        void enqueueDailyTeardown(call);
       }
       // Do not end Tavus on unmount / unexpected close — participant_left_timeout.
       conversationIdRef.current = null;
@@ -469,11 +549,15 @@ export function useTavusCall(): UseTavusCallResult {
     videoEnabled,
     audioEnabled,
     facingMode,
+    isFlippingCamera,
     toggleVideo,
     toggleAudio,
+    replaceVideoTrack,
     flipCamera,
     palJoined,
+    // Never fold cameraActionError into fatal call error.
     error: error || mediaError,
+    cameraActionError,
     starting,
   };
 }

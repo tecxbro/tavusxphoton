@@ -15,7 +15,12 @@ type Body =
 
 const SAFE_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** Fixed create payload — never trust browser-supplied create fields. */
+/**
+ * Fixed create payload — never trust browser-supplied create fields.
+ *
+ * @returns Tavus create body from `TAVUS_PAL_ID` / optional `TAVUS_FACE_ID` / `TAVUS_TEST_MODE`.
+ * @throws {Error} When `TAVUS_PAL_ID` is missing.
+ */
 export function buildServerCreatePayload(): Record<string, unknown> {
   const palId = process.env.TAVUS_PAL_ID?.trim();
   if (!palId) {
@@ -52,7 +57,17 @@ function safeError(status: number, fallback: string): Response {
   return Response.json({ error: fallback }, { status });
 }
 
+/**
+ * Runtime-agnostic Tavus proxy handler (Vite middleware + Vercel adapter).
+ *
+ * @param request - Web `Request` with JSON `{ action: "create" | "end", ... }`.
+ * @returns JSON create response, `204` on end, or a sanitized error response.
+ */
 export async function handleTavusRequest(request: Request): Promise<Response> {
+  if (process.env.TAVUS_ENABLED === "false") {
+    return safeError(404, "Not found.");
+  }
+
   if (request.method !== "POST") {
     return new Response("Method not allowed", {
       status: 405,

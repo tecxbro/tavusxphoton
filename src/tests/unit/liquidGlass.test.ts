@@ -81,12 +81,12 @@ describe("liquidGlass", () => {
     const options = getFullLiquidGlassOptionConstraints();
     expect(options.snapshot).toBe(LIQUID_GL_SNAPSHOT);
     expect(options.target).toBe(LIQUID_GL_TARGET);
-    expect(options.refraction).toBe(0.018);
-    expect(options.aberration).toBe(0.004);
-    expect(options.bevelDepth).toBe(0.085);
-    expect(options.bevelWidth).toBe(0.17);
-    expect(options.magnify).toBe(1.012);
-    expect(options.frost).toBe(0.25);
+    expect(options.refraction).toBe(0.024);
+    expect(options.aberration).toBe(0.005);
+    expect(options.bevelDepth).toBe(0.12);
+    expect(options.bevelWidth).toBe(0.22);
+    expect(options.magnify).toBe(1.02);
+    expect(options.frost).toBe(0.16);
     expect(options.specular).toBe(true);
     expect(LIQUID_GL_PACKAGE_VERSION).toBe("2.0.1");
     expect(LIQUID_GL_CANVAS_LAYER).toBe(".liquid-canvas-layer");
@@ -113,15 +113,38 @@ describe("liquidGlass", () => {
     };
     expect(options.snapshot).toBe("#liquid-gl-snapshot");
     expect(options.target).toBe(".liquidGL");
-    expect(options.refraction).toBe(0.018);
-    expect(options.aberration).toBe(0.004);
-    expect(options.bevelDepth).toBe(0.085);
-    expect(options.bevelWidth).toBe(0.17);
-    expect(options.magnify).toBe(1.012);
-    expect(options.frost).toBe(0.25);
+    expect(options.refraction).toBe(0.024);
+    expect(options.aberration).toBe(0.005);
+    expect(options.bevelDepth).toBe(0.12);
+    expect(options.bevelWidth).toBe(0.22);
+    expect(options.magnify).toBe(1.02);
+    expect(options.frost).toBe(0.16);
     expect(options.specular).toBe(true);
     expect(controller.mode).toBe("active");
     expect(document.documentElement.dataset.liquidGl).toBe("active");
+    controller.destroy();
+  });
+
+  it("notifies subscribeMode listeners when mode changes", () => {
+    let finishInit: (() => void) | undefined;
+    liquidGLMock.mockImplementation((options: MockOptions) => {
+      finishInit = () => options.on?.init?.({});
+      return { updateMetrics: vi.fn() };
+    });
+
+    const controller = createLiquidGlassController();
+    expect(controller.mode).toBe("initializing");
+
+    const modes: string[] = [];
+    const unsubscribe = controller.subscribeMode((mode) => {
+      modes.push(mode);
+    });
+
+    finishInit?.();
+    expect(modes).toEqual(["active"]);
+    expect(controller.mode).toBe("active");
+
+    unsubscribe();
     controller.destroy();
   });
 
@@ -239,118 +262,159 @@ describe("liquidGlass", () => {
     vi.useRealTimers();
   });
 
-  it("recaptures the background without recreating the renderer", () => {
+  it("refreshImmediate updates metrics without waiting for the debounce", () => {
+    vi.useFakeTimers();
+    const updateMetrics = vi.fn();
+    liquidGLMock.mockImplementation((options: MockOptions) => {
+      options.on?.init?.({});
+      return { updateMetrics };
+    });
+
+    const controller = createLiquidGlassController();
+    controller.refresh();
+    controller.refreshImmediate();
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(100);
+    // Debounced refresh was cancelled by the immediate call.
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
+  it("recaptures the background without recreating the renderer", async () => {
     vi.useFakeTimers();
     mockActiveRenderer();
     const controller = createLiquidGlassController();
     const renderer = window.__liquidGLRenderer__;
     expect(liquidGLMock).toHaveBeenCalledTimes(1);
 
+    const rebuild = vi.fn();
+    renderer!._rebuildDynamicVideoTexture = rebuild;
+
     controller.recapture();
     controller.recapture();
     controller.recapture();
-    vi.advanceTimersByTime(300);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
+  it("rebuildVideoTexture calls rebuild once and one lens-metric pass without a snapshot", () => {
+    mockActiveRenderer();
+    const controller = createLiquidGlassController();
+
+    const rebuild = vi.fn();
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+    renderer!._rebuildDynamicVideoTexture = rebuild;
+
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    expect(updateMetrics).toBeTruthy();
+    updateMetrics!.mockClear();
+
+    controller.rebuildVideoTexture();
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
+  it("awaits captureSnapshot completion before rebuilding video on recapture", async () => {
+    vi.useFakeTimers();
+    mockActiveRenderer();
+    const controller = createLiquidGlassController();
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+
+    const order: string[] = [];
+    let resolveSnapshot!: () => void;
+    renderer!.captureSnapshot = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSnapshot = () => {
+            order.push("snapshot");
+            resolve();
+          };
+        }),
+    );
+    renderer!._rebuildDynamicVideoTexture = vi.fn(() => {
+      order.push("rebuild");
+    });
+
+    controller.recapture();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(order).toEqual([]);
+
+    resolveSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(["snapshot", "rebuild"]);
+    controller.destroy();
+    vi.useRealTimers();
+  });
+
+  it("recaptureImmediate captures once, cancels debounce, and never remounts", async () => {
+    vi.useFakeTimers();
+    mockActiveRenderer();
+    const controller = createLiquidGlassController();
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+
+    const rebuild = vi.fn();
+    renderer!._rebuildDynamicVideoTexture = rebuild;
+
+    controller.recapture();
+    controller.recaptureImmediate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+
+    // Debounced timer was cancelled — advancing debounce window adds nothing.
+    await vi.advanceTimersByTimeAsync(300);
     expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
     expect(liquidGLMock).toHaveBeenCalledTimes(1);
     controller.destroy();
     vi.useRealTimers();
   });
 
-  it("erases stale video regions from the glass texture on camera off", () => {
+  it("coalesces overlapping recaptureImmediate calls into a follow-up pass", async () => {
+    vi.useFakeTimers();
     mockActiveRenderer();
     const controller = createLiquidGlassController();
-
-    const stage = document.querySelector<HTMLElement>("#liquid-gl-snapshot");
-    expect(stage).toBeTruthy();
-    const live = document.createElement("video");
-    const off = document.createElement("video");
-    off.setAttribute("data-liquid-ignore", "");
-    stage!.append(live, off);
-
-    for (const vid of [live, off]) {
-      Object.defineProperty(vid, "readyState", { value: 4, configurable: true });
-    }
-    const stageRect = {
-      left: 0,
-      top: 0,
-      right: 390,
-      bottom: 844,
-      width: 390,
-      height: 844,
-    } as DOMRect;
-    vi.spyOn(stage!, "getBoundingClientRect").mockReturnValue(stageRect);
-    vi.spyOn(live, "getBoundingClientRect").mockReturnValue(stageRect);
-    vi.spyOn(off, "getBoundingClientRect").mockReturnValue({
-      left: 250,
-      top: 600,
-      right: 370,
-      bottom: 800,
-      width: 120,
-      height: 200,
-    } as DOMRect);
-
-    const drawImage = vi.fn();
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      ((type: string) => {
-        if (type === "2d") {
-          return { drawImage } as unknown as CanvasRenderingContext2D;
-        }
-        if (
-          type === "webgl" ||
-          type === "webgl2" ||
-          type === "experimental-webgl"
-        ) {
-          return {} as WebGLRenderingContext;
-        }
-        return null;
-      }) as typeof HTMLCanvasElement.prototype.getContext,
-    );
-
-    const texSubImage2D = vi.fn();
-    const bindTexture = vi.fn();
-    const gl = {
-      bindTexture,
-      texSubImage2D,
-      TEXTURE_2D: 0x0de1,
-      RGBA: 0x1908,
-      UNSIGNED_BYTE: 0x1401,
-    } as unknown as WebGLRenderingContext;
-
-    const staticSnapshotCanvas = document.createElement("canvas");
-    staticSnapshotCanvas.width = 780;
-    staticSnapshotCanvas.height = 1688;
-
     const renderer = window.__liquidGLRenderer__;
     expect(renderer).toBeTruthy();
-    renderer!.gl = gl;
-    renderer!.texture = {} as WebGLTexture;
-    renderer!.staticSnapshotCanvas = staticSnapshotCanvas;
-    renderer!.snapshotTarget = stage!;
-    renderer!.scaleFactor = 2;
-    renderer!._videoFrameState = new WeakMap();
 
-    controller.syncVideoRegions();
-
-    // Only the ignored (camera-off) video region is erased; the live video
-    // keeps its per-frame blits.
-    expect(bindTexture).toHaveBeenCalledTimes(1);
-    expect(texSubImage2D).toHaveBeenCalledTimes(1);
-    const call = texSubImage2D.mock.calls[0]!;
-    expect(call[2]).toBe(500);
-    expect(call[3]).toBe(1200);
-    expect(drawImage).toHaveBeenCalledWith(
-      staticSnapshotCanvas,
-      500,
-      1200,
-      240,
-      400,
-      0,
-      0,
-      240,
-      400,
+    let resolveSnapshot!: () => void;
+    let snapshotCalls = 0;
+    renderer!.captureSnapshot = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          snapshotCalls += 1;
+          resolveSnapshot = () => resolve();
+        }),
     );
-    expect(renderer!._videoNodes?.length).toBe(2);
+    renderer!._rebuildDynamicVideoTexture = vi.fn();
+
+    controller.recaptureImmediate();
+    controller.recaptureImmediate();
+    controller.recaptureImmediate();
+    expect(snapshotCalls).toBe(1);
+
+    resolveSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    // Queued overlap runs exactly one more pass.
+    expect(snapshotCalls).toBe(2);
+    resolveSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(snapshotCalls).toBe(2);
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
     controller.destroy();
+    vi.useRealTimers();
   });
 
   it("tracks chrome visibility and cleans up the canvas on destroy", () => {

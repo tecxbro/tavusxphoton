@@ -21,7 +21,23 @@ describe("tavus API handler", () => {
     delete process.env.TAVUS_PAL_ID;
     delete process.env.TAVUS_FACE_ID;
     delete process.env.TAVUS_TEST_MODE;
+    delete process.env.TAVUS_ENABLED;
     vi.restoreAllMocks();
+  });
+
+  it("returns 404 when TAVUS_ENABLED=false", async () => {
+    process.env.TAVUS_ENABLED = "false";
+
+    const res = await handleTavusRequest(
+      new Request("http://localhost/api/tavus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", params: {} }),
+      }),
+    );
+
+    expect(res.status).toBe(404);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("keeps the Tavus API key server-side in create requests", async () => {

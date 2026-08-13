@@ -10,12 +10,26 @@ export type LiquidGlassMode =
 
 export interface LiquidGlassController {
   mode: LiquidGlassMode;
+  /** Subscribe to mode changes; returns an unsubscribe function. */
+  subscribeMode(listener: (mode: LiquidGlassMode) => void): () => void;
   /** Debounced lens metric refresh — never recreates the renderer. */
   refresh(): void;
+  /** Immediate lens metric update after a DOM commit (e.g. contact label). */
+  refreshImmediate(): void;
   /** Debounced background recapture for non-video state changes. */
   recapture(): void;
-  /** Immediately drop stale video frames baked into the glass texture. */
-  syncVideoRegions(): void;
+  /**
+   * Immediate background recapture — cancels pending debounced work, coalesces
+   * overlapping requests, captures + rebuilds video texture, updates metrics.
+   * Never calls `liquidGL()` or recreates the renderer.
+   */
+  recaptureImmediate(): void;
+  /**
+   * Rebuild videos from the current static base + one lens-metric pass.
+   * Used after a completed snapshot — not during FLIP morph frames.
+   * Callers must not immediately follow with `refreshImmediate()`.
+   */
+  rebuildVideoTexture(): void;
   /** Fade the shared glass canvas with the call chrome. */
   setChromeVisible(visible: boolean): void;
   destroy(): void;
@@ -45,19 +59,14 @@ interface RendererLike {
   canvas?: HTMLCanvasElement | null;
   lenses?: LiquidLensLike[];
   captureSnapshot?: () => Promise<void> | void;
-  gl?: WebGLRenderingContext | WebGL2RenderingContext | null;
-  texture?: WebGLTexture | null;
-  staticSnapshotCanvas?: HTMLCanvasElement | null;
-  snapshotTarget?: HTMLElement | null;
-  scaleFactor?: number;
-  _videoNodes?: HTMLVideoElement[];
-  _videoFrameState?: WeakMap<HTMLVideoElement, unknown>;
-  _isIgnored?: (el: HTMLElement) => boolean;
+  _rebuildDynamicVideoTexture?: () => void;
+  destroy?: () => void;
 }
 
 declare global {
   interface Window {
     __liquidGLRenderer__?: RendererLike;
+    __liquidGLNoWebGL__?: boolean;
     __miniPhoForceGlassFallback__?: boolean;
     __miniPhoLiquidGlassDebug__?: LiquidGlassDebugState;
   }
@@ -80,6 +89,11 @@ function prefersReducedTransparency(): boolean {
   return window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
 }
 
+/**
+ * Probe whether WebGL can create a drawing buffer (LiquidGL prerequisite).
+ *
+ * @returns False when WebGL is unavailable or context creation fails.
+ */
 export function hasWebGLSupport(): boolean {
   try {
     const canvas = document.createElement("canvas");
@@ -162,75 +176,6 @@ function adoptRendererCanvas(): void {
   }
 }
 
-/**
- * liquid-gl blits live video frames into the shared texture every frame, but
- * when a video becomes ignored (camera off) it simply stops blitting — leaving
- * the last frame frozen inside the glass long after the DOM has cross-faded to
- * the camera-off placeholder. Re-upload those regions from the static snapshot
- * (same erase technique the renderer uses for dynamic nodes) so the glass
- * drops the stale frame in the same commit as the DOM; the debounced recapture
- * then lands the settled placeholder. Version-locked to liquid-gl@2.0.1.
- */
-function eraseStaleVideoRegions(): void {
-  const renderer = window.__liquidGLRenderer__;
-  if (!renderer) return;
-  const { gl, texture, staticSnapshotCanvas, snapshotTarget } = renderer;
-  if (!gl || !texture || !staticSnapshotCanvas || !snapshotTarget) return;
-
-  const isIgnored = (el: HTMLVideoElement): boolean =>
-    renderer._isIgnored?.(el) ?? Boolean(el.closest("[data-liquid-ignore]"));
-
-  // Re-scan so videos ignored or added since construction stay tracked; the
-  // renderer's per-frame ignore check still gates its live blits.
-  const videos = Array.from(snapshotTarget.querySelectorAll("video"));
-  renderer._videoNodes = videos;
-
-  const snapRect = snapshotTarget.getBoundingClientRect();
-  const scale = renderer.scaleFactor ?? 1;
-  const maxW = staticSnapshotCanvas.width;
-  const maxH = staticSnapshotCanvas.height;
-  if (maxW <= 0 || maxH <= 0) return;
-
-  let tmp: HTMLCanvasElement | null = null;
-  let tmpCtx: CanvasRenderingContext2D | null = null;
-
-  for (const vid of videos) {
-    if (!isIgnored(vid) && vid.readyState >= 2) continue;
-
-    const rect = vid.getBoundingClientRect();
-    // Texture pixels map 1:1 onto the static snapshot canvas.
-    const x0 = Math.max(0, (rect.left - snapRect.left) * scale);
-    const y0 = Math.max(0, (rect.top - snapRect.top) * scale);
-    const x1 = Math.min(maxW, (rect.right - snapRect.left) * scale);
-    const y1 = Math.min(maxH, (rect.bottom - snapRect.top) * scale);
-    const w = Math.round(x1 - x0);
-    const h = Math.round(y1 - y0);
-    if (w <= 0 || h <= 0) continue;
-
-    if (!tmp || !tmpCtx) {
-      tmp = document.createElement("canvas");
-      tmpCtx = tmp.getContext("2d");
-      if (!tmpCtx) return;
-    }
-    tmp.width = w;
-    tmp.height = h;
-    tmpCtx.drawImage(staticSnapshotCanvas, x0, y0, w, h, 0, 0, w, h);
-
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      Math.round(x0),
-      Math.round(y0),
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      tmp,
-    );
-    // Force a live redraw when the video becomes visible again.
-    renderer._videoFrameState?.delete(vid);
-  }
-}
-
 // Private renderer fields below are version-locked to liquid-gl@2.0.1
 // (see patches/liquid-gl+2.0.1.patch). Do not upgrade without re-auditing.
 function clearRenderer(): void {
@@ -247,6 +192,8 @@ function clearRenderer(): void {
     lens._shadowEl?.remove();
     lens._mirror?.remove();
   }
+
+  renderer.destroy?.();
 
   renderer.lenses = [];
   renderer.canvas?.remove();
@@ -279,22 +226,28 @@ function buildOptions(
     target: LIQUID_GL_TARGET,
     resolution: reduced ? 1.0 : mobile ? 1.25 : 1.5,
     // Active mode must retain nonzero refraction and low frost (not a frosted overlay).
-    refraction: reduced ? 0.012 : 0.018,
-    aberration: reduced ? 0.002 : 0.004,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    frost: reduced ? 0.35 : 0.25,
+    refraction: reduced ? 0.014 : 0.024,
+    aberration: reduced ? 0.002 : 0.005,
+    bevelDepth: 0.12,
+    bevelWidth: 0.22,
+    frost: reduced ? 0.32 : 0.16,
     shadow: true,
     specular: !reduced,
     reveal: "none" as const,
     tilt: false,
-    magnify: reduced ? 1.008 : 1.012,
+    magnify: reduced ? 1.01 : 1.02,
     on: {
       init: onInit,
     },
   };
 }
 
+/**
+ * Create the singleton LiquidGL controller for call chrome.
+ * Exactly one shared WebGL canvas is adopted into `.liquid-canvas-layer`.
+ *
+ * @returns Controller with refresh / recapture / rebuild / destroy.
+ */
 export function createLiquidGlassController(): LiquidGlassController {
   let mode: LiquidGlassMode = "initializing";
   let instances: LiquidGLInstance[] = [];
@@ -305,6 +258,9 @@ export function createLiquidGlassController(): LiquidGlassController {
   let recaptureTimer: number | null = null;
   let watchdogTimer: number | null = null;
   let initGeneration = 0;
+  let immediateRecaptureInFlight = false;
+  let immediateRecaptureQueued = false;
+  const modeListeners = new Set<(mode: LiquidGlassMode) => void>();
 
   const publishDebug = () => {
     if (typeof window === "undefined") return;
@@ -324,6 +280,9 @@ export function createLiquidGlassController(): LiquidGlassController {
     mode = next;
     document.documentElement.dataset.liquidGl = next;
     publishDebug();
+    for (const listener of modeListeners) {
+      listener(next);
+    }
   };
 
   const clearWatchdog = () => {
@@ -403,6 +362,39 @@ export function createLiquidGlassController(): LiquidGlassController {
     return false;
   };
 
+  const clearRecaptureTimer = () => {
+    if (recaptureTimer != null) {
+      window.clearTimeout(recaptureTimer);
+      recaptureTimer = null;
+    }
+  };
+
+  const runRecapturePass = async (): Promise<void> => {
+    if (destroyed || !initialized) return;
+    if (mode === "fallback" || mode === "error") return;
+
+    const renderer = window.__liquidGLRenderer__;
+
+    try {
+      await Promise.resolve(renderer?.captureSnapshot?.());
+      // Reuse the existing canvas — rebuild textures, never remount liquidGL.
+      renderer?._rebuildDynamicVideoTexture?.();
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error.message.slice(0, 160)
+          : "Recapture failed";
+    }
+
+    for (const instance of instances) {
+      instance.updateMetrics?.();
+    }
+
+    adoptRendererCanvas();
+    publishDebug();
+    assertSingleCanvasDev();
+  };
+
   if (shouldFallback()) {
     lastError = prefersReducedTransparency()
       ? "Reduced transparency"
@@ -417,6 +409,12 @@ export function createLiquidGlassController(): LiquidGlassController {
   return {
     get mode() {
       return mode;
+    },
+    subscribeMode(listener: (next: LiquidGlassMode) => void) {
+      modeListeners.add(listener);
+      return () => {
+        modeListeners.delete(listener);
+      };
     },
     refresh() {
       if (destroyed) return;
@@ -439,36 +437,68 @@ export function createLiquidGlassController(): LiquidGlassController {
         assertSingleCanvasDev();
       }, REFRESH_DEBOUNCE_MS);
     },
+    refreshImmediate() {
+      if (destroyed) return;
+      if (mode === "fallback" || mode === "error") return;
+      if (refreshTimer != null) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      if (instances.length === 0) return;
+      for (const instance of instances) {
+        instance.updateMetrics?.();
+      }
+      adoptRendererCanvas();
+      publishDebug();
+      assertSingleCanvasDev();
+    },
     recapture() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
-      if (recaptureTimer != null) {
-        window.clearTimeout(recaptureTimer);
-      }
+      clearRecaptureTimer();
       recaptureTimer = window.setTimeout(() => {
         recaptureTimer = null;
-        if (destroyed) return;
-        if (!initialized) return;
-        const renderer = window.__liquidGLRenderer__;
-        try {
-          void renderer?.captureSnapshot?.();
-        } catch (error) {
-          lastError =
-            error instanceof Error
-              ? error.message.slice(0, 160)
-              : "Recapture failed";
-        }
-        for (const instance of instances) {
-          instance.updateMetrics?.();
-        }
-        publishDebug();
+        void runRecapturePass();
       }, RECAPTURE_DEBOUNCE_MS);
     },
-    syncVideoRegions() {
+    recaptureImmediate() {
+      if (destroyed) return;
+      if (mode === "fallback" || mode === "error") return;
+
+      // Cancel pending debounced recapture — immediate owns the next pass.
+      clearRecaptureTimer();
+
+      if (immediateRecaptureInFlight) {
+        immediateRecaptureQueued = true;
+        return;
+      }
+
+      immediateRecaptureInFlight = true;
+      void (async () => {
+        try {
+          do {
+            immediateRecaptureQueued = false;
+            await runRecapturePass();
+          } while (immediateRecaptureQueued && !destroyed);
+        } finally {
+          immediateRecaptureInFlight = false;
+        }
+      })();
+    },
+    rebuildVideoTexture() {
       if (destroyed) return;
       if (mode === "fallback" || mode === "error") return;
       if (!initialized) return;
-      eraseStaleVideoRegions();
+
+      window.__liquidGLRenderer__?._rebuildDynamicVideoTexture?.();
+
+      for (const instance of instances) {
+        instance.updateMetrics?.();
+      }
+
+      adoptRendererCanvas();
+      publishDebug();
+      assertSingleCanvasDev();
     },
     setChromeVisible(visible: boolean) {
       if (destroyed) return;
@@ -479,18 +509,17 @@ export function createLiquidGlassController(): LiquidGlassController {
     destroy() {
       destroyed = true;
       initGeneration += 1;
+      immediateRecaptureQueued = false;
       if (refreshTimer != null) {
         window.clearTimeout(refreshTimer);
         refreshTimer = null;
       }
-      if (recaptureTimer != null) {
-        window.clearTimeout(recaptureTimer);
-        recaptureTimer = null;
-      }
+      clearRecaptureTimer();
       clearWatchdog();
       clearRenderer();
       instances = [];
       initialized = false;
+      modeListeners.clear();
       delete document.documentElement.dataset.liquidGl;
       delete document.documentElement.dataset.liquidChrome;
       if (window.__miniPhoLiquidGlassDebug__) {
@@ -510,13 +539,13 @@ export function getFullLiquidGlassOptionConstraints() {
   return {
     snapshot: LIQUID_GL_SNAPSHOT,
     target: LIQUID_GL_TARGET,
-    refraction: 0.018,
-    aberration: 0.004,
-    bevelDepth: 0.085,
-    bevelWidth: 0.17,
-    magnify: 1.012,
+    refraction: 0.024,
+    aberration: 0.005,
+    bevelDepth: 0.12,
+    bevelWidth: 0.22,
+    magnify: 1.02,
     specular: true,
-    frost: 0.25,
+    frost: 0.16,
     tilt: false,
   };
 }

@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiquidGlass } from "../../hooks/useLiquidGlass";
 import type { CallPhase } from "../../lib/callState";
-import type { LocalCameraMode } from "../../components/LocalCameraSurface";
+import type { LocalCameraMode } from "../../lib/callUi";
 
 const liquidGLMock = vi.fn();
 
@@ -48,6 +48,7 @@ function mockActiveRenderer() {
       canvas,
       lenses: [],
       captureSnapshot: vi.fn(),
+      _rebuildDynamicVideoTexture: vi.fn(),
     };
     options.on?.init?.(instances[0]);
     return instances;
@@ -113,109 +114,99 @@ describe("useLiquidGlass", () => {
     expect(document.documentElement.dataset.liquidChrome).toBe("hidden");
   });
 
-  it("recaptures the background on camera toggles without a new renderer", async () => {
+  it("schedules one settled recapture on camera off without a mid-toggle rebuild", async () => {
     vi.useFakeTimers();
     mockActiveRenderer();
-    const { rerender } = renderHook((input: HookInput) =>
+    const { rerender, result } = renderHook((input: HookInput) =>
       useLiquidGlass(input),
     { initialProps: baseInput({ backgroundReady: true }) });
 
     const renderer = window.__liquidGLRenderer__;
     expect(renderer).toBeTruthy();
+    const rebuild = renderer!._rebuildDynamicVideoTexture as ReturnType<
+      typeof vi.fn
+    >;
+    rebuild.mockClear();
+    (renderer!.captureSnapshot as ReturnType<typeof vi.fn>).mockClear();
+
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    updateMetrics?.mockClear();
+
+    rerender(baseInput({ backgroundReady: true, videoEnabled: false }));
+
+    // Phase/layout/camera commits only refresh lens metrics immediately.
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
+    expect(typeof result.current.rebuildVideoTexture).toBe("function");
+    expect(typeof result.current.recapture).toBe("function");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(1);
-
-    rerender(baseInput({ backgroundReady: true, videoEnabled: false }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    expect(renderer?.captureSnapshot).toHaveBeenCalledTimes(2);
     expect(liquidGLMock).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
-  it("erases the stale camera frame from the glass texture immediately on camera off", () => {
+  it("refreshes lens metrics on phase and layoutMode commits without rebuild or snapshot", () => {
+    mockActiveRenderer();
+    const { rerender } = renderHook((input: HookInput) =>
+      useLiquidGlass(input),
+    { initialProps: baseInput({ backgroundReady: true }) });
+
+    const renderer = window.__liquidGLRenderer__;
+    expect(renderer).toBeTruthy();
+    const rebuild = renderer!._rebuildDynamicVideoTexture as ReturnType<
+      typeof vi.fn
+    >;
+    rebuild.mockClear();
+    (renderer!.captureSnapshot as ReturnType<typeof vi.fn>).mockClear();
+
+    const instances = liquidGLMock.mock.results[0]?.value as Array<{
+      updateMetrics: ReturnType<typeof vi.fn>;
+    }>;
+    const updateMetrics = instances?.[0]?.updateMetrics;
+    updateMetrics?.mockClear();
+
+    rerender(
+      baseInput({
+        backgroundReady: true,
+        phase: "joining",
+        layoutMode: "compact",
+      }),
+    );
+
+    expect(updateMetrics).toHaveBeenCalledTimes(1);
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule a phase-driven snapshot while video stays enabled", async () => {
     vi.useFakeTimers();
     mockActiveRenderer();
     const { rerender } = renderHook((input: HookInput) =>
       useLiquidGlass(input),
     { initialProps: baseInput({ backgroundReady: true }) });
 
-    const stage = document.querySelector<HTMLElement>("#liquid-gl-snapshot");
-    expect(stage).toBeTruthy();
-    const off = document.createElement("video");
-    off.setAttribute("data-liquid-ignore", "");
-    stage!.append(off);
-    Object.defineProperty(off, "readyState", { value: 4, configurable: true });
+    const renderer = window.__liquidGLRenderer__;
+    (renderer!.captureSnapshot as ReturnType<typeof vi.fn>).mockClear();
 
-    const stageRect = {
-      left: 0,
-      top: 0,
-      right: 390,
-      bottom: 844,
-      width: 390,
-      height: 844,
-    } as DOMRect;
-    vi.spyOn(stage!, "getBoundingClientRect").mockReturnValue(stageRect);
-    vi.spyOn(off, "getBoundingClientRect").mockReturnValue({
-      left: 250,
-      top: 600,
-      right: 370,
-      bottom: 800,
-      width: 120,
-      height: 200,
-    } as DOMRect);
-
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      ((type: string) => {
-        if (type === "2d") {
-          return {
-            drawImage: vi.fn(),
-          } as unknown as CanvasRenderingContext2D;
-        }
-        if (
-          type === "webgl" ||
-          type === "webgl2" ||
-          type === "experimental-webgl"
-        ) {
-          return {} as WebGLRenderingContext;
-        }
-        return null;
-      }) as typeof HTMLCanvasElement.prototype.getContext,
+    rerender(
+      baseInput({
+        backgroundReady: true,
+        phase: "live",
+        videoEnabled: true,
+      }),
     );
 
-    const texSubImage2D = vi.fn();
-    const renderer = window.__liquidGLRenderer__;
-    expect(renderer).toBeTruthy();
-    renderer!.gl = {
-      bindTexture: vi.fn(),
-      texSubImage2D,
-      TEXTURE_2D: 0x0de1,
-      RGBA: 0x1908,
-      UNSIGNED_BYTE: 0x1401,
-    } as unknown as WebGLRenderingContext;
-    renderer!.texture = {} as WebGLTexture;
-    const staticSnapshotCanvas = document.createElement("canvas");
-    staticSnapshotCanvas.width = 780;
-    staticSnapshotCanvas.height = 1688;
-    renderer!.staticSnapshotCanvas = staticSnapshotCanvas;
-    renderer!.snapshotTarget = stage!;
-    renderer!.scaleFactor = 2;
-
-    rerender(baseInput({ backgroundReady: true, videoEnabled: false }));
-
-    // The stale frame is erased synchronously on the toggle — before the
-    // debounced placeholder recapture runs.
-    expect(texSubImage2D).toHaveBeenCalledTimes(1);
-    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
-
-    act(() => {
-      vi.advanceTimersByTime(300);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
-    expect(renderer?.captureSnapshot).toHaveBeenCalled();
+    expect(renderer?.captureSnapshot).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -233,5 +224,31 @@ describe("useLiquidGlass", () => {
     expect(
       document.querySelectorAll("canvas[data-liquid-ignore]").length,
     ).toBe(0);
+  });
+
+  it("defers LiquidGL mount while hidden and creates on visibilitychange", () => {
+    mockActiveRenderer();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+
+    const { result } = renderHook((input: HookInput) => useLiquidGlass(input), {
+      initialProps: baseInput({ backgroundReady: true }),
+    });
+
+    expect(liquidGLMock).not.toHaveBeenCalled();
+    expect(result.current.mode).toBe("initializing");
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(liquidGLMock).toHaveBeenCalledTimes(1);
+    expect(result.current.mode).toBe("active");
   });
 });
