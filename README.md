@@ -23,8 +23,11 @@ npm run dev
 ```
 
 Open [http://localhost:5173/](http://localhost:5173/) — you land on the Garry
-call (mic/camera prompt, then connect). Ending the call leaves for
-[pleasegivemeaninternship.com](https://pleasegivemeaninternship.com).
+call (mic/camera prompt, then connect). Ending the live call leaves for
+[photon.codes](https://photon.codes).
+
+The iMessage Live Mini App card is `/incoming/garry` (Decline / Accept). Accept
+opens `/call/demo` in the expanded Mini App.
 
 Use one Vite server on port `5173` — do not start multiple copies.
 
@@ -35,8 +38,10 @@ this). When unset, Vite defaults to `true` so creates skip the PAL join.
 
 | Path | Purpose |
 |------|---------|
-| `/` | Redirects to `/call/garry-tan` (direct Garry landing) |
-| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation. Exit replaces the page with `https://pleasegivemeaninternship.com` |
+| `/` | Redirects to `/call/demo` (direct Garry landing) |
+| `/incoming/garry` | Live Mini App incoming card (Decline stays here; Accept loads `/call/demo`) |
+| `/call/demo` | Alias for Garry’s live Tavus call (auto-start). Hang-up replaces the page with `https://photon.codes` |
+| `/call/:agentId` | Garry → real Tavus call (auto-start); other agents → busy simulation. Busy exit still uses `https://pleasegivemeaninternship.com` |
 | `*` | Redirects to `/` |
 
 ## Environment variables
@@ -64,6 +69,7 @@ Full CVI notes: [`docs/tavus-cvi.md`](docs/tavus-cvi.md).
 | `npm run test:watch` | Vitest watch |
 | `npm run check` | lint + test + build |
 | `npm run postinstall` | Applies `patch-package` (LiquidGL patch) |
+| Vercel install | `npm ci` via `vercel.json` — required so the LiquidGL patch applies to a clean `liquid-gl@2.0.1` |
 
 ## Project structure
 

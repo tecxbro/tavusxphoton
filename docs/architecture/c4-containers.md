@@ -15,13 +15,13 @@ C4Container
 
   System_Ext(tavus, "Tavus CVI API", "Conversation REST")
   System_Ext(daily, "Daily", "WebRTC SFU")
-  System_Ext(hireMe, "Hire-me site", "Exit destination")
+  System_Ext(photonHome, "Photon", "Live hang-up destination")
 
   Rel(user, spa, "Uses", "HTTPS")
   Rel(spa, tavusProxy, "POST create / end", "JSON /api/tavus")
   Rel(tavusProxy, tavus, "Create / end conversation", "HTTPS x-api-key")
   Rel(spa, daily, "join / leave / tracks", "@daily-co/daily-js")
-  Rel(spa, hireMe, "Exit redirect", "location.replace")
+  Rel(spa, photonHome, "Live hang-up redirect", "location.replace")
 ```
 
 ## Container map

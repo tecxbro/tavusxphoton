@@ -1,7 +1,7 @@
 # C4 Dynamic — Live Garry call
 
 Numbered request / event flow for the happy-path live call
-(`/` → `/call/garry-tan` → auto-start).
+(`/incoming/garry` Accept → `/call/demo` auto-start, or `/` → `/call/demo`).
 
 Phase machine details: [`ARCHITECTURE.md`](../../ARCHITECTURE.md) and
 `src/lib/callState.ts`.
@@ -16,7 +16,7 @@ C4Dynamic
   System_Ext(tavus, "Tavus CVI", "Conversations API")
   System_Ext(daily, "Daily", "WebRTC room")
 
-  Rel(user, spa, "1. Land on /call/garry-tan (autoStart)")
+  Rel(user, spa, "1. Land on /call/demo (autoStart)")
   Rel(spa, spa, "2. getUserMedia + START_CALL / ringing")
   Rel(spa, proxy, "3. POST /api/tavus create", "JSON")
   Rel(proxy, tavus, "4. Create conversation (fixed PAL)", "HTTPS")
@@ -39,4 +39,4 @@ C4Dynamic
 | Gary joins Daily | `PAL_JOINED` → `connecting` |
 | First remote frame | `REMOTE_FRAME` → `joining` |
 | Morph complete | `JOIN_COMPLETE` → `live` |
-| User hangs up | `END` → teardown → hire-me redirect |
+| User hangs up | `END` → teardown → photon.codes redirect |

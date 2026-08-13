@@ -28,6 +28,7 @@
 | Task | Primary files | Also check |
 |------|---------------|------------|
 | Routes / agent call | `src/App.tsx`, `src/data/agents.ts` | `ARCHITECTURE.md` |
+| Incoming Live Mini App | `src/components/IncomingCallCard.tsx`, `src/App.tsx` | `src/lib/photonAppCard.ts` |
 | Agent directory data | `src/data/agents.ts`, `src/data/homeLinks.ts` (`HIRE_ME_URL`) | `public/avatars/agents/` |
 | Call phases / flow | `src/lib/callState.ts`, `src/hooks/useCallLifecycle.ts`, `CallScreen.tsx` | `src/tests/unit/callState.test.ts` |
 | Call visual shell | `CallVisualShell.tsx` | `CallScreen.tsx`, `BusyCallScreen.tsx` |

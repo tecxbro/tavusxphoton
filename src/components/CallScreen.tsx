@@ -36,13 +36,20 @@ import {
 } from "../lib/callUi";
 import { hapticTap } from "../lib/haptics";
 
+function redirectToPhotonHome() {
+  window.location.replace("https://photon.codes");
+}
+
 interface CallScreenProps {
   /** Fixed agent-derived display identity. */
   config: CallConfig;
   /** When true, begins bootstrapping on mount (Garry landing). */
   autoStart?: boolean;
-  /** Fired after teardown; App replaces the page with the hire-me URL. */
-  onExit: () => void;
+  /**
+   * Fired after hang-up teardown (`endTavusCall`). Defaults to replacing
+   * the page with https://photon.codes so Back cannot reopen the call.
+   */
+  onExit?: () => void;
 }
 
 function localModeFor(
@@ -75,12 +82,12 @@ function wantsDebugGlass(): boolean {
  *
  * @param props.config - Display identity from fixed agent data.
  * @param props.autoStart - Auto-dispatch `START_CALL` on mount when true.
- * @param props.onExit - Post-end navigation (hire-me redirect).
+ * @param props.onExit - Post-end navigation (Photon home by default).
  */
 export function CallScreen({
   config,
   autoStart = false,
-  onExit,
+  onExit = redirectToPhotonHome,
 }: CallScreenProps) {
   const [backgroundReady, setBackgroundReady] = useState(false);
   const [showGlassDebug, setShowGlassDebug] = useState(false);

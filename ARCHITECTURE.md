@@ -16,7 +16,7 @@ Current runtime: FaceTime UI + Tavus CVI over Daily.
 | Entry | Location | Role |
 |-------|----------|------|
 | Bootstrap | `src/main.tsx` | Mounts React (`StrictMode` + `BrowserRouter`), loads CSS |
-| Routes | `src/App.tsx` | `/` → `/call/garry-tan`; `/call/:agentId` live or busy call; exit → `HIRE_ME_URL` |
+| Routes | `src/App.tsx` | `/incoming/garry` Live card; `/` → `/call/demo`; `/call/:agentId` live or busy; live hang-up → `https://photon.codes` |
 | Call UI | `src/components/CallScreen.tsx` | Presentation + LiquidGL; phases via `useCallLifecycle` |
 | Call visual shell | `src/components/CallVisualShell.tsx` | Shared stage / canvas / chrome slots for live + busy |
 | Busy call | `src/components/BusyCallScreen.tsx` | Local-only ring → busy; never Tavus/Daily |
@@ -24,12 +24,17 @@ Current runtime: FaceTime UI + Tavus CVI over Daily.
 ```mermaid
 flowchart LR
   main["src/main.tsx"] --> app["src/App.tsx"]
-  app -->|"/"| redirect["Navigate to /call/garry-tan"]
+  app -->|"/incoming/garry"| incoming["IncomingCallCard"]
+  incoming -->|Accept| demo["/call/demo"]
+  incoming -->|Decline| declined["Call Declined"]
+  app -->|"/"| redirect["Navigate to /call/demo"]
   redirect --> route["AgentCallRoute"]
   app -->|"/call/:agentId"| route
+  demo --> route
   route -->|Garry live| call["CallScreen.tsx"]
   route -->|busy| busy["BusyCallScreen"]
-  route -->|onExit| hire["HIRE_ME_URL"]
+  route -->|live hang-up| photon["photon.codes"]
+  route -->|busy onExit| hire["HIRE_ME_URL"]
   busy --> mediaBusy["useMediaDevices"]
   busy --> audioBusy["useCallAudio"]
   call --> tavusHook["useTavusCall"]
@@ -47,8 +52,10 @@ flowchart LR
 
 | Path | Element | Notes |
 |------|---------|-------|
-| `/` | `Navigate` → `/call/garry-tan` | Direct Garry landing (no agent directory) |
-| `/call/:agentId` | `AgentCallRoute` | Resolves fixed agent data; Garry → `CallScreen` (auto-start); others → `BusyCallScreen`. Unknown ids → `/`. Exit uses `window.location.replace(HIRE_ME_URL)`. Profile identity is never taken from query params. |
+| `/` | `Navigate` → `/call/demo` | Direct Garry landing (no agent directory) |
+| `/incoming/garry` | `IncomingCallCard` | Live Mini App decision surface. Decline mutates the card locally. Accept document-navigates to `/call/demo`. No camera/mic. |
+| `/call/demo` | `AgentCallRoute` | Alias for Garry (`garry-tan`). `CallScreen` with `autoStart`. Hang-up → `window.location.replace("https://photon.codes")`. |
+| `/call/:agentId` | `AgentCallRoute` | Resolves fixed agent data; Garry → `CallScreen` (auto-start); others → `BusyCallScreen`. Unknown ids → `/`. Busy exit uses `window.location.replace(HIRE_ME_URL)`. Profile identity is never taken from query params. |
 | `*` | Redirect → `/` | |
 
 Dev-only query on Garry’s call route: `debugGlass=1` (ignored outside Vite `DEV`).
@@ -88,12 +95,12 @@ stateDiagram-v2
 
 Happy path in `CallScreen`:
 
-1. `/` → `/call/garry-tan` → auto `START_CALL` / `startCall()`.
+1. `/incoming/garry` Accept (or `/` / `/call/demo`) → auto `START_CALL` / `startCall()`.
 2. Local camera + Tavus create run together → `ringing` once permissions succeed.
 3. Join Daily room with `conversation_url` + `meeting_token`.
 4. Gary joins → `PAL_JOINED` → `connecting`.
 5. First remote video frame → `joining` (layout morph) → `live`.
-6. End → await Tavus End Conversation + Daily leave/destroy → `window.location.replace(HIRE_ME_URL)` (`https://pleasegivemeaninternship.com`).
+6. End → await Tavus End Conversation + Daily leave/destroy → `window.location.replace("https://photon.codes")`.
 
 Unexpected disconnect cleanup is owned by Tavus `participant_left_timeout: 10`.
 No browser unload End / beacon.
@@ -156,13 +163,13 @@ Shared `CallAudioController` (`src/lib/callAudio.ts`) + `useCallAudio` maps phas
 
 **Mounted on active routes**
 
-`CallScreen`, `BusyCallScreen`, `CallVisualShell`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `SymbolIcon`.
+`IncomingCallCard`, `CallScreen`, `BusyCallScreen`, `CallVisualShell`, `LocalCameraSurface`, `CallControlRail`, `CallControlButton`, `ContactPill`, `EffectsButton` (decorative), `SymbolIcon`.
 
 **Present in the repo but not imported by active routes**
 
 `ConnectingScreen`, `PrejoinScreen`, `SelfView`, `StatusPill`, `MoreSheet`, `ParticipantSheet`, `EffectsPanel`.
 
-Also unused at runtime: `src/lib/photonAppCard.ts` (helper only). `More` in the control rail is rendered but disabled.
+Also unused at runtime: `src/lib/photonAppCard.ts` (Spectrum sender snippet only — sending stays off the frontend). `More` in the control rail is rendered but disabled.
 
 ## Tests (subsystem map)
 
@@ -175,6 +182,7 @@ Also unused at runtime: `src/lib/photonAppCard.ts` (helper only). `More` in the 
 | Call lifecycle | `src/tests/unit/useCallLifecycle.test.tsx` |
 | LiquidGL controller / dynamic video / morph | `src/tests/unit/liquidGlass.test.ts`, `useLiquidGlass.test.tsx`, `liquidGlDynamicVideos.test.ts`, `useLayoutMorph.test.ts` |
 | Call chrome / symbols | `src/tests/unit/callControls.test.tsx`, `symbolIcon.test.tsx` |
+| Incoming Live Mini App | `src/tests/unit/incomingCallCard.test.tsx` |
 | Tavus API | `api/tests/tavusApi.test.ts` |
 
 Manual LiquidGL checks: `docs/liquid-gl-verification.md`.

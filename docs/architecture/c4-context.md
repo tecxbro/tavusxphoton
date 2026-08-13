@@ -14,13 +14,13 @@ C4Context
 
   System_Ext(tavus, "Tavus CVI API", "Creates and ends PAL conversations")
   System_Ext(daily, "Daily", "WebRTC media transport for CVI rooms")
-  System_Ext(hireMe, "Hire-me site", "pleasegivemeaninternship.com exit destination")
+  System_Ext(photonHome, "Photon", "photon.codes exit destination")
 
   Rel(user, miniPho, "Starts / ends call, toggles camera and mic")
   Rel(miniPho, tavus, "Create / end conversation", "HTTPS JSON via /api/tavus")
   Rel(miniPho, daily, "Join room, publish local / receive remote A/V", "Daily JS SDK")
   Rel(tavus, daily, "Provisions conversation room", "Tavus-managed")
-  Rel(miniPho, hireMe, "Redirects after call exit", "window.location.replace")
+  Rel(miniPho, photonHome, "Redirects after live call hang-up", "window.location.replace")
 ```
 
 ## Notes

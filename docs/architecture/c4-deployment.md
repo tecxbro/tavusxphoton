@@ -34,6 +34,8 @@ C4Deployment
   Rel(viteDev, tavusApi, "Dev proxy create / end", "HTTPS x-api-key")
 ```
 
+Vercel install is `npm ci` (`vercel.json`) so `patch-package` always runs against a clean `liquid-gl@2.0.1`, not a cached already-patched `node_modules`.
+
 ## Environment
 
 | Variable | Where | Notes |

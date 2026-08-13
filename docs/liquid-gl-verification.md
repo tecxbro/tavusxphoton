@@ -7,6 +7,7 @@ Companion to [`ARCHITECTURE.md`](../ARCHITECTURE.md). Run this guide when changi
 - Package: `liquid-gl`
 - Version: `2.0.1` (exact pin in `package.json`)
 - Patch: `patches/liquid-gl+2.0.1.patch` (applied by `postinstall` / `patch-package`)
+- Vercel install: `npm ci` (`vercel.json` `installCommand`) so a cached `node_modules` from a previous patch cannot receive a second apply. `npm install` plus Vercel’s build cache is what made postinstall fail on an otherwise valid patch.
 
 ## Import and initialization
 
